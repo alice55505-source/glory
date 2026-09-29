@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>得榮少年點名</title>
+<meta name="theme-color" content="#2f5d50">
+<style>
+  :root {
+    --bg: #f4f3ef; --card: #ffffff; --ink: #1f2522; --muted: #6b726e; --line: #e2e0d9;
+    --accent: #2f5d50; --accent-soft: #e3eee9; --ok: #2e7d4f; --ok-soft: #e2f3e8;
+    --bad: #b3422f; --bad-soft: #f8e6e2; --warn: #a86f12; --warn-soft: #f8eed9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151816; --card: #1f2321; --ink: #e8ebe9; --muted: #9aa29d; --line: #2f3531;
+      --accent: #7fc0a9; --accent-soft: #23352e; --ok: #6fcf97; --ok-soft: #1e3327;
+      --bad: #ef8b78; --bad-soft: #3a2420; --warn: #e3b25a; --warn-soft: #382d1a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    font-size: 16px; line-height: 1.5; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--accent); color: #fff; padding: 12px 16px; }
+  @media (prefers-color-scheme: dark) { header { color: #10201a; } }
+  header h1 { margin: 0; font-size: 18px; }
+  header .sub { font-size: 13px; opacity: .85; }
+  main { max-width: 860px; margin: 0 auto; padding: 16px; }
+  nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; background: var(--card);
+    border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  nav button { flex: 1; border: 0; background: none; color: var(--muted); padding: 8px 4px 10px; font-size: 12px; cursor: pointer; }
+  nav button b { display: block; font-size: 15px; }
+  nav button.on { color: var(--accent); font-weight: 700; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 16px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .between { justify-content: space-between; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .tag.req { background: var(--bad-soft); color: var(--bad); }
+  .tag.opt { background: var(--line); color: var(--muted); }
+  .tag.yr { background: var(--warn-soft); color: var(--warn); }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); }
+  input, select, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-width: 100%; }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  label.f { display: block; margin-bottom: 10px; }
+  label.f span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+  label.f input, label.f select { width: 100%; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+  button.btn { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  @media (prefers-color-scheme: dark) { button.btn { color: #10201a; } }
+  button.btn.ghost { background: transparent; color: var(--accent); }
+  button.btn.danger { background: transparent; border-color: var(--bad); color: var(--bad); }
+  button.btn.sm { padding: 4px 10px; font-size: 14px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; border: 0; background: var(--card); color: var(--muted); padding: 6px 12px; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .list-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .list-item:first-child { border-top: 0; }
+  .att { border-top: 1px solid var(--line); padding: 10px 0; }
+  .att:first-child { border-top: 0; }
+  .att .name { font-weight: 700; }
+  .checks { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 6px; }
+  .checks label { display: inline-flex; align-items: center; gap: 6px; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .stepper button { font: inherit; width: 34px; height: 32px; border: 0; background: var(--bg); color: var(--ink); cursor: pointer; }
+  .stepper span { min-width: 30px; text-align: center; }
+  .hours { width: 72px; }
+  .lessons { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 6px; }
+  .lessons label { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+  .tbl-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--card); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .y { color: var(--ok); font-weight: 700; } .n { color: var(--bad); } .o { color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 24px; }
+  .empty { text-align: center; color: var(--muted); padding: 24px 0; }
+  dialog { border: 0; border-radius: 14px; padding: 0; width: min(520px, calc(100vw - 32px)); background: var(--card); color: var(--ink); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog form { padding: 16px; }
+  dialog h3 { margin-top: 0; }
+  .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 99px; font-size: 14px; z-index: 20; }
+  #preview img { width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>得榮少年點名系統</h1>
+  <div class="sub" id="hdrSub"></div>
+</header>
+<main id="app"></main>
+<nav id="nav">
+  <button data-tab="rules"><b>①</b>各地規定</button>
+  <button data-tab="youth"><b>②</b>得少資料</button>
+  <button data-tab="att"><b>③</b>點名</button>
+  <button data-tab="stats"><b>④</b>統計</button>
+</nav>
+<dialog id="dlg"></dialog>
+
+<script>
+/* ============ 資料 ============ */
+const STORE_KEY = 'derong-youth-v1';
+const GRADES = ['小五','小六','國一','國二','國三','高一','高二','高三','大專','其他'];
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+function defaultRules() {
+  return [
+    { id: 'lessons', builtin: true, enabled: true, name: '申請八堂課', period: 'once', kind: 'lessons', req: 'required', label: '八堂課',
+      lessons: ['第一堂','第二堂','第三堂','第四堂','第五堂','第六堂','第七堂','第八堂'] },
+    { id: 'home', builtin: true, enabled: true, name: '每月家訪', period: 'monthly', kind: 'check', req: 'required', label: '家訪' },
+    { id: 'group', builtin: true, enabled: true, name: '每月聚集（小排或主日）', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排' },
+    { id: 'sunday', builtin: true, enabled: true, name: '每月主日', period: 'monthly', kind: 'count', req: 'fromYear', fromYear: 3, target: 1, label: '主日' },
+    { id: 'growth', builtin: true, enabled: true, name: '每年生命成長園', period: 'yearly', kind: 'hours', req: 'required', target: 8, label: '成長園' },
+    { id: 'service', builtin: true, enabled: true, name: '每年社區服務', period: 'yearly', kind: 'hours', req: 'required', target: 4, label: '社區服務' },
+  ];
+}
+
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (d && d.rules && d.youths) return d;
+  } catch (e) {}
+  return { locality: '', rules: defaultRules(), youths: [] };
+}
+let DB = load();
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) { toast('儲存失敗'); } }
+
+/* ============ 工具 ============ */
+const pad = n => String(n).padStart(2, '0');
+const now = new Date();
+const thisMonth = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const ymLabel = ym => { const [y, m] = ym.split('-'); return `${y}年${+m}月`; };
+const shiftYm = (ym, d) => { let [y, m] = ym.split('-').map(Number); m += d; while (m < 1) { m += 12; y--; } while (m > 12) { m -= 12; y++; } return `${y}-${pad(m)}`; };
+
+function age(bd) {
+  if (!bd) return '';
+  const b = new Date(bd); if (isNaN(b)) return '';
+  let a = now.getFullYear() - b.getFullYear();
+  if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) a--;
+  return a;
+}
+// 第幾年：申請月起算，每 12 個月加一年；尚未申請回傳 0
+function yearN(y, ym) {
+  if (!y.appYear) return 0;
+  const [cy, cm] = ym.split('-').map(Number);
+  const diff = (cy * 12 + cm) - (y.appYear * 12 + Number(y.appMonth));
+  return diff < 0 ? 0 : Math.floor(diff / 12) + 1;
+}
+// 此規定對此得少在此月是否為「規定」
+function isRequired(rule, y, ym) {
+  if (rule.req === 'required') return true;
+  if (rule.req === 'fromYear') return yearN(y, ym) >= (rule.fromYear || 1);
+  return false;
+}
+function reqTag(rule) {
+  if (rule.req === 'required') return '<span class="tag req">規定</span>';
+  if (rule.req === 'fromYear') return `<span class="tag yr">第${rule.fromYear}年起規定</span>`;
+  return '<span class="tag opt">選填</span>';
+}
+// 統計欄名：聚集欄顯示「聚集」（小排或主日），其餘用簡稱
+const colName = r => r.kind === 'gathering' ? '聚集' : (r.label || r.name);
+const activeRules = () => DB.rules.filter(r => r.enabled);
+const mRec = (y, ym) => (y.monthly[ym] ||= {});
+const yRec = (y, yr) => (y.yearly[yr] ||= {});
+const sortedYouths = () => [...DB.youths].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+
+// 評估某規定：回傳 { met, text }
+function evalRule(rule, y, ym) {
+  const m = y.monthly[ym] || {};
+  const yr = ym.slice(0, 4);
+  const yv = (y.yearly[yr] || {})[rule.id];
+  switch (rule.kind) {
+    case 'lessons': { const n = (y.lessons || []).filter(Boolean).length; const t = rule.lessons.length; return { met: n >= t, text: `${n}/${t}` }; }
+    case 'check': if (rule.period === 'once') { const v = !!(y.once || {})[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
+                  { const v = !!m[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
+    case 'gathering': { const v = !!m.group || (m.sunday || 0) > 0; return { met: v, text: v ? '✓' : '✗' }; }
+    case 'count': if (rule.period === 'yearly') { const n = yv || 0; return { met: n >= rule.target, text: `${n}/${rule.target}` }; }
+                  { const n = m[rule.id] || 0; return { met: n >= (rule.target || 1), text: `${n}次` }; }
+    case 'hours': { const n = yv || 0; return { met: n >= rule.target, text: `${n}/${rule.target}h` }; }
+  }
+  return { met: false, text: '' };
+}
+// 月度整體：只看「一次性 + 每月」的規定項目；每年項目為進度，不影響本月達標
+function monthStatus(y, ym) {
+  let fail = [];
+  for (const r of activeRules()) {
+    if (r.period === 'yearly' || !isRequired(r, y, ym)) continue;
+    if (!evalRule(r, y, ym).met) fail.push(colName(r));
+  }
+  return { ok: fail.length === 0, fail };
+}
+
+/* ============ 畫面 ============ */
+let tab = 'att';
+let curYm = thisMonth;
+let attMode = 'monthly';
+const app = document.getElementById('app');
+
+function render() {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  document.getElementById('hdrSub').textContent = `${DB.locality ? DB.locality + '・' : ''}得少 ${DB.youths.length} 位`;
+  ({ rules: renderRules, youth: renderYouth, att: renderAtt, stats: renderStats })[tab]();
+}
+
+/* ---------- 第一層：各地規定 ---------- */
+function renderRules() {
+  const periodTxt = { once: '一次', monthly: '每月', yearly: '每年' };
+  app.innerHTML = `
+    <div class="card">
+      <label class="f"><span>地方 / 召會名稱</span><input id="loc" value="${esc(DB.locality)}" placeholder="例：台北市召會"></label>
+    </div>
+    <div class="card">
+      <div class="row between"><h3>規定項目</h3><button class="btn sm" data-act="addRule">＋ 新增規定</button></div>
+      ${DB.rules.map(r => `
+        <div class="list-item">
+          <div>
+            <div><b style="${r.enabled ? '' : 'text-decoration:line-through;opacity:.5'}">${esc(r.name)}</b></div>
+            <div class="row" style="gap:6px;margin-top:2px">
+              <span class="tag">${periodTxt[r.period]}</span>${reqTag(r)}
+              ${r.kind === 'hours' ? `<span class="muted">${r.target} 小時</span>` : ''}
+              ${r.kind === 'count' ? `<span class="muted">至少 ${r.target} 次</span>` : ''}
+              ${r.kind === 'lessons' ? `<span class="muted">${r.lessons.length} 堂</span>` : ''}
+            </div>
+          </div>
+          <div class="row" style="flex-wrap:nowrap">
+            <button class="btn ghost sm" data-act="editRule" data-id="${r.id}">編輯</button>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="card">
+      <h3>資料備份</h3>
+      <p class="muted" style="margin-top:0">資料只存在這支手機／這台電腦的瀏覽器。換裝置或交接給其他服事者時，請用「匯出」再「匯入」。</p>
+      <div class="row">
+        <button class="btn ghost sm" data-act="export">匯出備份</button>
+        <button class="btn ghost sm" data-act="import">匯入備份</button>
+        <input type="file" id="importFile" accept="application/json" hidden>
+      </div>
+    </div>`;
+  document.getElementById('loc').onchange = e => { DB.locality = e.target.value.trim(); save(); render(); };
+  document.getElementById('importFile').onchange = importData;
+}
+
+function ruleDialog(rule) {
+  const isNew = !rule;
+  const r = rule || { id: uid(), builtin: false, enabled: true, name: '', period: 'monthly', kind: 'check', req: 'required', target: 1, fromYear: 3 };
+  const dlg = document.getElementById('dlg');
+  const kindOpts = p => p === 'once' ? [['check','打勾']] : p === 'monthly' ? [['check','打勾'],['count','次數']] : [['hours','時數'],['count','次數']];
+  dlg.innerHTML = `
+    <form method="dialog" id="rf">
+      <h3>${isNew ? '新增規定' : '編輯規定'}</h3>
+      <label class="f"><span>名稱</span><input name="name" required value="${esc(r.name)}"></label>
+      <label class="f"><span>點名表上的簡稱（選填）</span><input name="label" value="${esc(r.label || '')}" placeholder="例：家訪"></label>
+      ${r.builtin ? '' : `
+      <div class="grid2">
+        <label class="f"><span>週期</span><select name="period">${[['once','一次'],['monthly','每月'],['yearly','每年']].map(([v,t]) => `<option value="${v}" ${r.period===v?'selected':''}>${t}</option>`).join('')}</select></label>
+        <label class="f"><span>記錄方式</span><select name="kind"></select></label>
+      </div>`}
+      <div class="grid2">
+        <label class="f"><span>規定 / 選填</span>
+          <select name="req">
+            <option value="required" ${r.req==='required'?'selected':''}>規定</option>
+            <option value="optional" ${r.req==='optional'?'selected':''}>選填</option>
+            <option value="fromYear" ${r.req==='fromYear'?'selected':''}>第 N 年起規定</option>
+          </select></label>
+        <label class="f" id="fyWrap"><span>從第幾年起</span><input name="fromYear" type="number" min="1" max="10" value="${r.fromYear || 3}"></label>
+      </div>
+      <label class="f" id="tgWrap"><span id="tgLbl">目標</span><input name="target" type="number" min="0" step="0.5" value="${r.target ?? 1}"></label>
+      ${r.kind === 'lessons' ? `<label class="f"><span>八堂課名稱（一行一堂）</span><textarea name="lessons" rows="8" style="width:100%">${esc(r.lessons.join('\n'))}</textarea></label>` : ''}
+      <label class="row" style="margin-bottom:12px"><input type="checkbox" name="enabled" ${r.enabled?'checked':''}> 啟用此規定</label>
+      <div class="row between">
+        <div>${r.builtin ? '' : (isNew ? '' : '<button type="button" class="btn danger sm" id="delRule">刪除</button>')}</div>
+        <div class="row"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn" value="ok">儲存</button></div>
+      </div>
+    </form>`;
+  const f = dlg.querySelector('form');
+  const sync = () => {
+    const period = r.builtin ? r.period : f.period.value;
+    if (!r.builtin) {
+      const cur = f.kind.value || r.kind;
+      f.kind.innerHTML = kindOpts(period).map(([v,t]) => `<option value="${v}" ${cur===v?'selected':''}>${t}</option>`).join('');
+    }
+    const kind = r.builtin ? r.kind : f.kind.value;
+    dlg.querySelector('#fyWrap').style.visibility = f.req.value === 'fromYear' ? 'visible' : 'hidden';
+    const showTarget = kind === 'hours' || kind === 'count';
+    dlg.querySelector('#tgWrap').style.display = showTarget ? '' : 'none';
+    dlg.querySelector('#tgLbl').textContent = kind === 'hours' ? '目標時數' : period === 'monthly' ? '每月至少幾次' : '目標次數';
+  };
+  f.onchange = sync; sync();
+  dlg.querySelector('#cancel').onclick = () => dlg.close();
+  const del = dlg.querySelector('#delRule');
+  if (del) del.onclick = () => { if (confirm(`刪除「${r.name}」？已記錄的資料也不再顯示。`)) { DB.rules = DB.rules.filter(x => x.id !== r.id); save(); dlg.close(); render(); } };
+  f.onsubmit = e => {
+    e.preventDefault();
+    r.name = f.name.value.trim(); r.label = f.label.value.trim() || undefined;
+    if (!r.builtin) { r.period = f.period.value; r.kind = f.kind.value; }
+    r.req = f.req.value; r.fromYear = +f.fromYear.value || 1;
+    r.target = +f.target.value || 0; r.enabled = f.enabled.checked;
+    if (r.kind === 'lessons') { const ls = f.lessons.value.split('\n').map(s => s.trim()).filter(Boolean); if (ls.length) r.lessons = ls; }
+    if (isNew) DB.rules.push(r);
+    save(); dlg.close(); render();
+  };
+  dlg.showModal();
+}
+
+/* ---------- 第二層：得少資料 ---------- */
+function renderYouth() {
+  const ys = sortedYouths();
+  app.innerHTML = `
+    <div class="card">
+      <div class="row between"><h3>得少名單</h3><button class="btn sm" data-act="addYouth">＋ 新增得少</button></div>
+      ${ys.length ? ys.map(y => `
+        <div class="list-item">
+          <div>
+            <b>${esc(y.name)}</b> ${y.birthday ? `<span class="muted">${age(y.birthday)} 歲</span>` : ''}
+            <div class="muted">${esc([y.school, y.grade].filter(Boolean).join('・'))}${y.appYear ? `・${y.appYear}年${y.appMonth}月申請・第${yearN(y, thisMonth) || '-'}年` : ''}</div>
+          </div>
+          <button class="btn ghost sm" data-act="editYouth" data-id="${y.id}">編輯</button>
+        </div>`).join('') : '<div class="empty">尚未新增得少</div>'}
+    </div>`;
+}
+
+function youthDialog(y) {
+  const isNew = !y;
+  const d = y || { id: uid(), name: '', birthday: '', school: '', grade: '', appYear: now.getFullYear(), appMonth: now.getMonth() + 1 >= 11 || now.getMonth() + 1 < 5 ? 11 : 5, lessons: [], once: {}, monthly: {}, yearly: {} };
+  const dlg = document.getElementById('dlg');
+  const years = []; for (let i = now.getFullYear() + 1; i >= now.getFullYear() - 8; i--) years.push(i);
+  dlg.innerHTML = `
+    <form method="dialog">
+      <h3>${isNew ? '新增得少' : '編輯得少'}</h3>
+      <label class="f"><span>姓名</span><input name="name" required value="${esc(d.name)}"></label>
+      <label class="f"><span>生日 <span id="ageTxt"></span></span><input name="birthday" type="date" value="${esc(d.birthday)}"></label>
+      <div class="grid2">
+        <label class="f"><span>學校</span><input name="school" value="${esc(d.school)}"></label>
+        <label class="f"><span>年級</span><select name="grade"><option value=""></option>${GRADES.map(g => `<option ${d.grade===g?'selected':''}>${g}</option>`).join('')}</select></label>
+      </div>
+      <div class="grid2">
+        <label class="f"><span>申請年份</span><select name="appYear">${years.map(v => `<option ${+d.appYear===v?'selected':''}>${v}</option>`).join('')}</select></label>
+        <label class="f"><span>申請梯次</span><select name="appMonth"><option value="5" ${+d.appMonth===5?'selected':''}>5月</option><option value="11" ${+d.appMonth===11?'selected':''}>11月</option></select></label>
+      </div>
+      <div class="row between">
+        <div>${isNew ? '' : '<button type="button" class="btn danger sm" id="delY">刪除</button>'}</div>
+        <div class="row"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">儲存</button></div>
+      </div>
+    </form>`;
+  const f = dlg.querySelector('form');
+  const showAge = () => { const a = age(f.birthday.value); dlg.querySelector('#ageTxt').textContent = a !== '' ? `（${a} 歲）` : ''; };
+  f.birthday.oninput = showAge; showAge();
+  dlg.querySelector('#cancel').onclick = () => dlg.close();
+  const del = dlg.querySelector('#delY');
+  if (del) del.onclick = () => { if (confirm(`刪除「${d.name}」及其所有點名紀錄？`)) { DB.youths = DB.youths.filter(x => x.id !== d.id); save(); dlg.close(); render(); } };
+  f.onsubmit = e => {
+    e.preventDefault();
+    Object.assign(d, { name: f.name.value.trim(), birthday: f.birthday.value, school: f.school.value.trim(), grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value });
+    if (isNew) DB.youths.push(d);
+    save(); dlg.close(); render();
+  };
+  dlg.showModal();
+}
+
+/* ---------- 第三層：點名 ---------- */
+function monthNav(yearly) {
+  return `<div class="row between" style="margin-bottom:12px">
+    <button class="btn ghost sm" data-act="prevM">‹</button>
+    <b>${yearly ? curYm.slice(0, 4) + ' 年' : ymLabel(curYm)}</b>
+    <button class="btn ghost sm" data-act="nextM">›</button></div>`;
+}
+function renderAtt() {
+  const ys = sortedYouths();
+  const rules = activeRules();
+  const lessonRule = rules.find(r => r.kind === 'lessons');
+  const onceRules = rules.filter(r => r.period === 'once' && r.kind !== 'lessons');
+  const mRules = rules.filter(r => r.period === 'monthly');
+  const yRules = rules.filter(r => r.period === 'yearly');
+  const seg = `<div class="seg" style="margin-bottom:12px">
+      ${[['monthly','每月'],['yearly','每年'],['once','八堂課']].map(([v,t]) => `<button data-act="attMode" data-v="${v}" class="${attMode===v?'on':''}">${t}</button>`).join('')}</div>`;
+  if (!ys.length) { app.innerHTML = seg + '<div class="card empty">請先到「② 得少資料」新增得少</div>'; return; }
+
+  let body = '';
+  if (attMode === 'monthly') {
+    body = monthNav() + `<div class="card">${ys.map(y => {
+      const n = yearN(y, curYm);
+      if (!n) return `<div class="att"><span class="name">${esc(y.name)}</span> <span class="muted">尚未申請（${y.appYear}年${y.appMonth}月）</span></div>`;
+      const m = y.monthly[curYm] || {};
+      const st = monthStatus(y, curYm);
+      return `<div class="att">
+        <div class="row between"><div><span class="name">${esc(y.name)}</span> <span class="muted">第${n}年</span></div>
+          <span class="tag ${st.ok ? 'ok' : 'req'}">${st.ok ? '本月達標' : '缺 ' + st.fail.join('、')}</span></div>
+        <div class="checks">${mRules.map(r => {
+          const key = r.kind === 'gathering' ? 'group' : r.id;
+          const lbl = esc(r.label || r.name);
+          const star = isRequired(r, y, curYm) ? '' : '<span class="muted">(選)</span>';
+          if (r.kind === 'count') return `<label>${lbl}${star}<span class="stepper"><button data-act="step" data-y="${y.id}" data-k="${key}" data-d="-1">−</button><span>${m[key] || 0}</span><button data-act="step" data-y="${y.id}" data-k="${key}" data-d="1">＋</button></span></label>`;
+          return `<label><input type="checkbox" data-act="mcheck" data-y="${y.id}" data-k="${key}" ${m[key] ? 'checked' : ''}>${lbl}${star}</label>`;
+        }).join('')}</div></div>`;
+    }).join('')}</div>`;
+  } else if (attMode === 'yearly') {
+    const yr = curYm.slice(0, 4);
+    body = monthNav(true) + `<div class="card">${yRules.length ? ys.map(y => {
+      const rec = (y.yearly[yr] || {});
+      return `<div class="att"><span class="name">${esc(y.name)}</span>
+        <div class="checks">${yRules.map(r => `<label>${esc(r.label || r.name)}
+          <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0">
+          <span class="muted">/ ${r.target}${r.kind==='hours'?' 小時':' 次'}</span></label>`).join('')}</div></div>`;
+    }).join('') : '<div class="empty">沒有每年規定</div>'}</div>`;
+  } else {
+    body = `<div class="card">${ys.map(y => {
+      const done = (y.lessons || []).filter(Boolean).length;
+      return `<div class="att">
+        <div class="row between"><span class="name">${esc(y.name)}</span>
+        ${lessonRule ? `<span class="tag ${done >= lessonRule.lessons.length ? 'ok' : ''}">${done}/${lessonRule.lessons.length}</span>` : ''}</div>
+        ${lessonRule ? `<div class="lessons">${lessonRule.lessons.map((l, i) => `<label><input type="checkbox" data-act="lesson" data-y="${y.id}" data-i="${i}" ${(y.lessons || [])[i] ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>` : ''}
+        ${onceRules.length ? `<div class="checks">${onceRules.map(r => `<label><input type="checkbox" data-act="ocheck" data-y="${y.id}" data-k="${r.id}" ${(y.once || {})[r.id] ? 'checked' : ''}>${esc(r.label || r.name)}</label>`).join('')}</div>` : ''}
+      </div>`;
+    }).join('')}</div>`;
+  }
+  app.innerHTML = seg + body;
+}
+
+/* ---------- 第四層：統計 ---------- */
+function statsData() {
+  const rules = activeRules();
+  const cols = rules; // 每條規定一欄
+  const rows = sortedYouths().filter(y => yearN(y, curYm) > 0).map(y => {
+    const cells = cols.map(r => ({ ...evalRule(r, y, curYm), req: isRequired(r, y, curYm), yearly: r.period === 'yearly' }));
+    return { y, n: yearN(y, curYm), cells, st: monthStatus(y, curYm) };
+  });
+  return { cols, rows };
+}
+function renderStats() {
+  const { cols, rows } = statsData();
+  const ok = rows.filter(r => r.st.ok).length;
+  app.innerHTML = monthNav() + `
+    <div class="stats">
+      <div class="stat"><b>${rows.length}</b><span class="muted">得少人數</span></div>
+      <div class="stat"><b style="color:var(--ok)">${ok}</b><span class="muted">本月達標</span></div>
+      <div class="stat"><b style="color:var(--bad)">${rows.length - ok}</b><span class="muted">未達標</span></div>
+    </div>
+    <div class="card">
+      ${rows.length ? `<div class="tbl-wrap"><table>
+        <tr><th>姓名</th><th>年</th>${cols.map(c => `<th>${esc(colName(c))}</th>`).join('')}<th>本月</th></tr>
+        ${rows.map(r => `<tr><td>${esc(r.y.name)}</td><td>${r.n}</td>
+          ${r.cells.map(c => `<td class="${c.met ? 'y' : c.req && !c.yearly ? 'n' : 'o'}">${c.text}</td>`).join('')}
+          <td class="${r.st.ok ? 'y' : 'n'}">${r.st.ok ? '達標' : '未達'}</td></tr>`).join('')}
+      </table></div>
+      <p class="muted" style="margin-bottom:0">「本月達標」只看規定的八堂課與每月項目；每年項目（${cols.filter(c => c.period === 'yearly').map(c => c.label || c.name).join('、') || '無'}）顯示 ${curYm.slice(0,4)} 年累計進度。灰色為選填。</p>`
+      : '<div class="empty">此月沒有已申請的得少</div>'}
+    </div>
+    <div class="row">
+      <button class="btn" data-act="shareImg">分享圖片</button>
+      <button class="btn ghost" data-act="copyText">複製文字</button>
+    </div>
+    <div id="preview" style="margin-top:12px"></div>`;
+}
+
+function drawStatsImage() {
+  const { cols, rows } = statsData();
+  const W = 1080, pad = 40, rowH = 58, headH = 210, thH = 56, footH = 90;
+  const H = headH + thH + Math.max(rows.length, 1) * rowH + footH;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  const font = (s, w = 400) => `${w} ${s}px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
+  g.fillStyle = '#f4f3ef'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#2f5d50'; g.fillRect(0, 0, W, 150);
+  g.fillStyle = '#fff'; g.font = font(44, 700); g.textBaseline = 'middle';
+  g.fillText('得榮少年點名統計', pad, 58);
+  g.font = font(28); g.fillText(`${DB.locality ? DB.locality + '　' : ''}${ymLabel(curYm)}`, pad, 110);
+  const ok = rows.filter(r => r.st.ok).length;
+  g.fillStyle = '#1f2522'; g.font = font(28, 700);
+  g.fillText(`共 ${rows.length} 位　`, pad, 182);
+  let x0 = pad + g.measureText(`共 ${rows.length} 位　`).width;
+  g.fillStyle = '#2e7d4f'; g.fillText(`達標 ${ok}　`, x0, 182); x0 += g.measureText(`達標 ${ok}　`).width;
+  g.fillStyle = '#b3422f'; g.fillText(`未達 ${rows.length - ok}`, x0, 182);
+
+  // 欄寬
+  const nameW = 170, yrW = 60, stW = 110;
+  const restW = (W - pad * 2 - nameW - yrW - stW) / Math.max(cols.length, 1);
+  const xs = [pad, pad + nameW]; for (let i = 0; i < cols.length; i++) xs.push(pad + nameW + yrW + restW * i);
+  const stX = pad + nameW + yrW + restW * cols.length;
+  let y = headH;
+  g.fillStyle = '#e3eee9'; g.fillRect(pad - 10, y, W - pad * 2 + 20, thH);
+  g.fillStyle = '#2f5d50'; g.font = font(22, 700);
+  const center = (t, x, w, yy) => { g.textAlign = 'center'; g.fillText(t, x + w / 2, yy); g.textAlign = 'left'; };
+  const fit = (t, w) => { let s = t; while (g.measureText(s).width > w - 8 && s.length > 1) s = s.slice(0, -1); return s; };
+  g.fillText('姓名', pad, y + thH / 2);
+  center('年', pad + nameW, yrW, y + thH / 2);
+  cols.forEach((c, i) => center(fit(colName(c), restW), xs[i + 2], restW, y + thH / 2));
+  center('本月', stX, stW, y + thH / 2);
+  y += thH;
+  rows.forEach((r, ri) => {
+    if (ri % 2) { g.fillStyle = '#ffffff'; g.fillRect(pad - 10, y, W - pad * 2 + 20, rowH); }
+    g.font = font(26, 600); g.fillStyle = '#1f2522';
+    g.fillText(fit(r.y.name, nameW), pad, y + rowH / 2);
+    g.font = font(24); center(String(r.n), pad + nameW, yrW, y + rowH / 2);
+    r.cells.forEach((c, i) => {
+      g.fillStyle = c.met ? '#2e7d4f' : c.req && !c.yearly ? '#b3422f' : '#8a908c';
+      g.font = font(24, c.met ? 700 : 400);
+      center(c.text, xs[i + 2], restW, y + rowH / 2);
+    });
+    g.fillStyle = r.st.ok ? '#2e7d4f' : '#b3422f'; g.font = font(24, 700);
+    center(r.st.ok ? '達標' : '未達', stX, stW, y + rowH / 2);
+    y += rowH;
+  });
+  if (!rows.length) { g.fillStyle = '#6b726e'; g.font = font(24); center('此月沒有已申請的得少', 0, W, y + rowH / 2); y += rowH; }
+  g.fillStyle = '#6b726e'; g.font = font(20);
+  g.fillText('✓ 完成　✗ 未完成　灰色：選填或每年累計中　h：小時', pad, y + 40);
+  return cv;
+}
+
+async function shareImg() {
+  const cv = drawStatsImage();
+  const url = cv.toDataURL('image/png');
+  document.getElementById('preview').innerHTML = `<img src="${url}" alt="統計圖片"><p class="muted">若無法直接分享，可長按圖片儲存。</p>`;
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const file = new File([blob], `得少點名_${curYm}.png`, { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: `得榮少年點名 ${ymLabel(curYm)}` }); } catch (e) {}
+  } else {
+    const a = document.createElement('a'); a.href = url; a.download = file.name; a.click();
+  }
+}
+
+function copyText() {
+  const { cols, rows } = statsData();
+  const ok = rows.filter(r => r.st.ok).length;
+  const lines = [`【得榮少年點名】${DB.locality ? DB.locality + ' ' : ''}${ymLabel(curYm)}`, `共 ${rows.length} 位，達標 ${ok}，未達 ${rows.length - ok}`, ''];
+  rows.forEach(r => lines.push(`${r.st.ok ? '✅' : '⭕'} ${r.y.name}（第${r.n}年）` + cols.map((c, i) => ` ${colName(c)}${r.cells[i].text}`).join('')));
+  const t = lines.join('\n');
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('已複製'), () => prompt('請複製以下文字', t));
+}
+
+/* ---------- 備份 ---------- */
+function exportData() {
+  const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `得少點名備份_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+}
+function importData(e) {
+  const file = e.target.files[0]; if (!file) return;
+  file.text().then(t => {
+    const d = JSON.parse(t);
+    if (!d.rules || !d.youths) throw 0;
+    if (!confirm(`匯入將覆蓋目前資料（得少 ${d.youths.length} 位），確定？`)) return;
+    DB = d; save(); render(); toast('匯入完成');
+  }).catch(() => toast('檔案格式錯誤'));
+}
+
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 1800);
+}
+
+/* ============ 事件 ============ */
+const findY = id => DB.youths.find(y => y.id === id);
+document.getElementById('nav').onclick = e => { const b = e.target.closest('button'); if (b) { tab = b.dataset.tab; render(); window.scrollTo(0, 0); } };
+app.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if (!el) return;
+  const a = el.dataset.act;
+  if (a === 'addRule') ruleDialog();
+  else if (a === 'editRule') ruleDialog(DB.rules.find(r => r.id === el.dataset.id));
+  else if (a === 'addYouth') youthDialog();
+  else if (a === 'editYouth') youthDialog(findY(el.dataset.id));
+  else if (a === 'export') exportData();
+  else if (a === 'import') document.getElementById('importFile').click();
+  else if (a === 'attMode') { attMode = el.dataset.v; render(); }
+  else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, (a === 'prevM' ? -1 : 1) * (attMode === 'yearly' && tab === 'att' ? 12 : 1)); render(); }
+  else if (a === 'step') {
+    const y = findY(el.dataset.y), m = mRec(y, curYm), k = el.dataset.k;
+    m[k] = Math.max(0, Math.min(5, (m[k] || 0) + +el.dataset.d)); save(); render();
+  }
+  else if (a === 'shareImg') shareImg();
+  else if (a === 'copyText') copyText();
+});
+app.addEventListener('change', e => {
+  const el = e.target; const a = el.dataset.act; if (!a) return;
+  const y = findY(el.dataset.y);
+  if (a === 'mcheck') mRec(y, curYm)[el.dataset.k] = el.checked;
+  else if (a === 'ocheck') (y.once ||= {})[el.dataset.k] = el.checked;
+  else if (a === 'lesson') (y.lessons ||= [])[+el.dataset.i] = el.checked;
+  else if (a === 'yval') yRec(y, curYm.slice(0, 4))[el.dataset.k] = Math.max(0, +el.value || 0);
+  else return;
+  save(); render();
+});
+
+render();
+</script>
+</body>
+</html>
