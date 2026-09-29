@@ -165,7 +165,7 @@ function defaultRules() {
     { id: 'lessons', builtin: true, enabled: true, name: '申請八堂課', period: 'once', kind: 'lessons', req: 'required', label: '八堂課',
       lessons: ['第一堂','第二堂','第三堂','第四堂','第五堂','第六堂','第七堂','第八堂'] },
     { id: 'home', builtin: true, enabled: true, name: '每月家訪', period: 'monthly', kind: 'check', req: 'required', label: '家訪' },
-    { id: 'group', builtin: true, enabled: true, name: '每月聚集（小排或主日）', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排' },
+    { id: 'group', builtin: true, enabled: true, name: '每月聚集', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排' },
     { id: 'sunday', builtin: true, enabled: true, name: '每月主日', period: 'monthly', kind: 'count', req: 'fromYear', fromYear: 3, target: 1, label: '主日' },
     { id: 'growth', builtin: true, enabled: true, name: '每年生命成長園', period: 'yearly', kind: 'hours', req: 'required', target: 8, label: '成長園' },
     { id: 'service', builtin: true, enabled: true, name: '每年社區服務', period: 'yearly', kind: 'hours', req: 'required', target: 4, label: '社區服務' },
@@ -217,6 +217,9 @@ function connect() {
       if (msg.name && msg.name !== S.name) { S.name = msg.name; lsSet('derong-session', S); }
       for (const op of pending) { applySet(DB, op.path, clone(op.value)); ws.send(JSON.stringify({ type: 'set', ...op })); }
       if (!Array.isArray(DB.rules)) setPath(['rules'], defaultRules());
+      // 舊名稱「每月聚集（小排或主日）」改為「每月聚集」
+      else if (DB.rules.some(r => r.name === '每月聚集（小排或主日）'))
+        setPath(['rules'], DB.rules.map(r => r.name === '每月聚集（小排或主日）' ? { ...r, name: '每月聚集' } : r));
       DB.youths ||= {};
       persistLocal(); scheduleRender();
     } else if (msg.type === 'rename') {
