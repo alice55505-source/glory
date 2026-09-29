@@ -828,9 +828,24 @@ function renderStats() {
     <div id="preview" style="margin-top:12px"></div>`;
 }
 
+// 達標條件文字（分享圖片與複製文字用）
+function ruleLines() {
+  const tag = r => r.req === 'required' ? '規定' : r.req === 'fromYear' ? `第${r.fromYear}年起規定` : '選填';
+  const desc = r => {
+    if (r.kind === 'lessons') return `完成 ${r.lessons.length} 堂（待申請者只需此項）`;
+    if (r.kind === 'gathering') return `小排或主日皆可，第${r.sundayFromYear || 3}年起須為主日`;
+    if (r.period === 'monthly') return r.kind === 'count' ? `每月至少 ${r.target} 次` : '每月至少 1 次';
+    if (r.period === 'yearly') return `每年度 ${r.target}${r.kind === 'hours' ? ' 小時' : ' 次'}（依申請月起算）`;
+    return '完成';
+  };
+  return activeRules().map(r => `【${tag(r)}】${r.name}：${desc(r)}`);
+}
+const STATUS_NOTE = '本月達標＝八堂課＋每月規定項目；每年項目為年度累計進度';
+
 function drawStatsImage() {
   const { cols, rows } = statsData();
-  const W = 1080, pad = 40, rowH = 58, headH = 210, thH = 56, footH = 90;
+  const conds = ruleLines();
+  const W = 1080, pad = 40, rowH = 58, headH = 210, thH = 56, footH = 90 + 56 + conds.length * 38 + 80;
   const H = headH + thH + Math.max(rows.length, 1) * rowH + footH;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d');
@@ -879,6 +894,13 @@ function drawStatsImage() {
   if (!rows.length) { g.fillStyle = '#6b726e'; g.font = font(24); center('尚未新增得少', 0, W, y + rowH / 2); y += rowH; }
   g.fillStyle = '#6b726e'; g.font = font(20);
   g.fillText('✓ 完成　✗ 未完成　待：待申請（只需八堂課）　灰色：選填或年度累計中', pad, y + 40);
+  // 達標條件
+  y += 80;
+  g.fillStyle = '#e3edf9'; g.fillRect(pad - 10, y, W - pad * 2 + 20, 56 + conds.length * 38 + 50);
+  g.fillStyle = '#1f5aa6'; g.font = font(24, 700); g.fillText('達標條件', pad + 6, y + 30);
+  g.fillStyle = '#1f2522'; g.font = font(21);
+  conds.forEach((t, i) => g.fillText(fit(t, W - pad * 2 - 12), pad + 6, y + 70 + i * 38));
+  g.fillStyle = '#6b726e'; g.font = font(19); g.fillText(STATUS_NOTE, pad + 6, y + 70 + conds.length * 38);
   return cv;
 }
 
@@ -901,6 +923,7 @@ function copyText() {
   const lines = [`【得榮少年點名】${S.name} ${ymLabel(curYm)}`, `共 ${rows.length} 位，達標 ${ok}，未達 ${rows.length - ok}`, ''];
   rows.forEach(r => lines.push(`${r.st.ok ? '✅' : '⭕'} ${r.y.name}（${r.n ? `第${r.n}年` : '待申請'}）` +
     cols.map((c, i) => r.cells[i].na ? '' : ` ${colName(c)}${r.cells[i].text}`).join('')));
+  lines.push('', '【達標條件】', ...ruleLines(), STATUS_NOTE);
   const t = lines.join('\n');
   (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('已複製'), () => prompt('請複製以下文字', t));
 }
