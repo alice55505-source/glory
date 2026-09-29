@@ -833,7 +833,7 @@ function ruleLines() {
   const tag = r => r.req === 'required' ? '規定' : r.req === 'fromYear' ? `第${r.fromYear}年起規定` : '選填';
   const desc = r => {
     if (r.kind === 'lessons') return `完成 ${r.lessons.length} 堂（待申請者只需此項）`;
-    if (r.kind === 'gathering') return '小排或主日皆可';
+    if (r.kind === 'gathering') return '每月至少一次小排或主日';
     if (r.period === 'monthly') return r.kind === 'count' ? `每月至少 ${r.target} 次` : '每月至少 1 次';
     if (r.period === 'yearly') return `每年度 ${r.target}${r.kind === 'hours' ? ' 小時' : ' 次'}（依申請月起算）`;
     return '完成';
