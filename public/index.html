@@ -36,6 +36,7 @@
   main { max-width: 860px; margin: 0 auto; padding: 16px; }
   nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; background: var(--card);
     border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  body.noauth nav { display: none; }
   nav button { flex: 1; border: 0; background: none; color: var(--muted); padding: 8px 4px 10px; font-size: 12px; cursor: pointer; }
   nav button b { display: block; font-size: 15px; }
   nav button.on { color: var(--accent); font-weight: 700; }
@@ -60,11 +61,15 @@
   button.btn.ghost { background: transparent; color: var(--accent); }
   button.btn.danger { background: transparent; border-color: var(--bad); color: var(--bad); }
   button.btn.sm { padding: 4px 10px; font-size: 14px; }
+  button.btn:disabled { opacity: .5; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   .seg button { font: inherit; border: 0; background: var(--card); color: var(--muted); padding: 6px 12px; cursor: pointer; }
   .seg button.on { background: var(--accent); color: #fff; }
   .list-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); }
   .list-item:first-child { border-top: 0; }
+  .church { width: 100%; text-align: left; font: inherit; color: var(--ink); background: none; border: 0; border-top: 1px solid var(--line); padding: 14px 4px; cursor: pointer; display: flex; justify-content: space-between; }
+  .church:first-of-type { border-top: 0; }
+  .church::after { content: '›'; color: var(--muted); }
   .att { border-top: 1px solid var(--line); padding: 10px 0; }
   .att:first-child { border-top: 0; }
   .att .name { font-weight: 700; }
@@ -86,6 +91,7 @@
   .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
   .stat b { display: block; font-size: 24px; }
   .empty { text-align: center; color: var(--muted); padding: 24px 0; }
+  .err { color: var(--bad); font-size: 14px; min-height: 1.5em; }
   dialog { border: 0; border-radius: 14px; padding: 0; width: min(520px, calc(100vw - 32px)); background: var(--card); color: var(--ink); }
   dialog::backdrop { background: rgba(0,0,0,.4); }
   dialog form { padding: 16px; }
@@ -109,32 +115,114 @@
 <dialog id="dlg"></dialog>
 
 <script>
-/* ============ 資料 ============ */
-const STORE_KEY = 'derong-youth-v1';
+/* ============ 基本 ============ */
 const GRADES = ['小五','小六','國一','國二','國三','高一','高二','高三','大專','其他'];
 const uid = () => Math.random().toString(36).slice(2, 10);
+const clone = v => v === undefined ? null : JSON.parse(JSON.stringify(v));
+const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
 function defaultRules() {
   return [
     { id: 'lessons', builtin: true, enabled: true, name: '申請八堂課', period: 'once', kind: 'lessons', req: 'required', label: '八堂課',
       lessons: ['第一堂','第二堂','第三堂','第四堂','第五堂','第六堂','第七堂','第八堂'] },
     { id: 'home', builtin: true, enabled: true, name: '每月家訪', period: 'monthly', kind: 'check', req: 'required', label: '家訪' },
-    { id: 'group', builtin: true, enabled: true, name: '每月聚集（小排或主日）', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排' },
+    { id: 'group', builtin: true, enabled: true, name: '每月聚集（小排或主日）', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排', sundayFromYear: 3 },
     { id: 'sunday', builtin: true, enabled: true, name: '每月主日', period: 'monthly', kind: 'count', req: 'fromYear', fromYear: 3, target: 1, label: '主日' },
     { id: 'growth', builtin: true, enabled: true, name: '每年生命成長園', period: 'yearly', kind: 'hours', req: 'required', target: 8, label: '成長園' },
     { id: 'service', builtin: true, enabled: true, name: '每年社區服務', period: 'yearly', kind: 'hours', req: 'required', target: 4, label: '社區服務' },
   ];
 }
 
-function load() {
-  try {
-    const d = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (d && d.rules && d.youths) return d;
-  } catch (e) {}
-  return { locality: '', rules: defaultRules(), youths: [] };
+/* ============ 登入與同步 ============ */
+// S：本機記住的召會登入 {id, name, token}；登入一次後下次不用再登入
+let S = lsGet('derong-session');
+let DB = { rules: [], youths: {} };
+let pending = [];          // 尚未被伺服器確認的修改
+let ws = null, online = false, retry = 0, retryTimer = null;
+const docKey = () => 'derong-doc-' + S.id;
+const opsKey = () => 'derong-ops-' + S.id;
+
+function applySet(doc, path, value) {
+  let o = doc;
+  for (const k of path.slice(0, -1)) {
+    if (typeof o[k] !== 'object' || o[k] === null || Array.isArray(o[k])) o[k] = {};
+    o = o[k];
+  }
+  const last = path[path.length - 1];
+  if (value === null || value === undefined) delete o[last]; else o[last] = value;
 }
-let DB = load();
-function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(DB)); } catch (e) { toast('儲存失敗'); } }
+function persistLocal() { lsSet(docKey(), DB); lsSet(opsKey(), pending); }
+
+// 所有修改都經過這裡：先改本機、記在待上傳，再送到伺服器
+function setPath(path, value) {
+  const op = { id: uid(), path, value: clone(value) };
+  applySet(DB, path, clone(value));
+  pending.push(op);
+  persistLocal();
+  if (online) ws.send(JSON.stringify({ type: 'set', ...op }));
+  updateHeader();
+}
+
+function connect() {
+  clearTimeout(retryTimer);
+  if (!S || (ws && ws.readyState <= 1)) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/api/churches/${S.id}/ws?token=${encodeURIComponent(S.token)}`);
+  ws.onopen = () => { retry = 0; };
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'auth-error') { logout('登入已失效，請重新登入'); return; }
+    if (msg.type === 'state') {
+      online = true;
+      DB = msg.doc || {};
+      if (msg.name && msg.name !== S.name) { S.name = msg.name; lsSet('derong-session', S); }
+      for (const op of pending) { applySet(DB, op.path, clone(op.value)); ws.send(JSON.stringify({ type: 'set', ...op })); }
+      if (!Array.isArray(DB.rules)) setPath(['rules'], defaultRules());
+      DB.youths ||= {};
+      persistLocal(); scheduleRender();
+    } else if (msg.type === 'ack') {
+      pending = pending.filter(o => o.id !== msg.id);
+      if (msg.error) toast(msg.error);
+      persistLocal(); updateHeader();
+    } else if (msg.type === 'set') {
+      applySet(DB, msg.path, msg.value);
+      for (const op of pending) applySet(DB, op.path, clone(op.value));
+      persistLocal(); scheduleRender();
+    }
+  };
+  ws.onclose = () => {
+    online = false; updateHeader();
+    if (S) retryTimer = setTimeout(connect, Math.min(30000, 1000 * 2 ** retry++));
+  };
+}
+window.addEventListener('online', () => { retry = 0; connect(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { retry = 0; connect(); } });
+
+function startSession(sess) {
+  S = sess; lsSet('derong-session', S);
+  DB = lsGet(docKey()) || { rules: [], youths: {} };
+  DB.youths ||= {}; DB.rules ||= [];
+  pending = lsGet(opsKey()) || [];
+  tab = 'att'; render(); connect();
+}
+function logout(msg) {
+  if (S) { lsSet(docKey(), null); lsSet(opsKey(), null); }
+  S = null; lsSet('derong-session', null); online = false; pending = [];
+  if (ws) { ws.onclose = null; ws.close(); ws = null; }
+  render(); if (msg) toast(msg);
+}
+
+async function api(path, body, token) {
+  const res = await fetch('/api/churches' + path, {
+    method: body ? 'POST' : 'GET',
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || '連線失敗');
+  return data;
+}
 
 /* ============ 工具 ============ */
 const pad = n => String(n).padStart(2, '0');
@@ -151,17 +239,25 @@ function age(bd) {
   if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) a--;
   return a;
 }
-// 第幾年：申請月起算，每 12 個月加一年；尚未申請回傳 0
+// 第幾年：申請月起算，每 12 個月加一年；0 = 待申請
 function yearN(y, ym) {
   if (!y.appYear) return 0;
   const [cy, cm] = ym.split('-').map(Number);
   const diff = (cy * 12 + cm) - (y.appYear * 12 + Number(y.appMonth));
   return diff < 0 ? 0 : Math.floor(diff / 12) + 1;
 }
-// 此規定對此得少在此月是否為「規定」
+// 第 N 年的起訖月，例：2025/5–2026/4
+function serviceRange(y, n) {
+  const s = y.appYear * 12 + (Number(y.appMonth) - 1) + 12 * (n - 1), e = s + 11;
+  const f = m => `${Math.floor(m / 12)}/${m % 12 + 1}`;
+  return `${f(s)}–${f(e)}`;
+}
+// 待申請的得少只需完成八堂課；已申請者依規定
 function isRequired(rule, y, ym) {
+  const n = yearN(y, ym);
+  if (!n) return rule.kind === 'lessons';
   if (rule.req === 'required') return true;
-  if (rule.req === 'fromYear') return yearN(y, ym) >= (rule.fromYear || 1);
+  if (rule.req === 'fromYear') return n >= (rule.fromYear || 1);
   return false;
 }
 function reqTag(rule) {
@@ -169,32 +265,39 @@ function reqTag(rule) {
   if (rule.req === 'fromYear') return `<span class="tag yr">第${rule.fromYear}年起規定</span>`;
   return '<span class="tag opt">選填</span>';
 }
-// 統計欄名：聚集欄顯示「聚集」（小排或主日），其餘用簡稱
+const activeRules = () => (DB.rules || []).filter(r => r.enabled);
+// 統計欄名：聚集欄顯示「聚集」，其餘用簡稱
 const colName = r => r.kind === 'gathering' ? '聚集' : (r.label || r.name);
-const activeRules = () => DB.rules.filter(r => r.enabled);
-const mRec = (y, ym) => (y.monthly[ym] ||= {});
-const yRec = (y, yr) => (y.yearly[yr] ||= {});
-const sortedYouths = () => [...DB.youths].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+const youthList = () => Object.values(DB.youths || {});
+const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'zh-Hant');
+const sortedYouths = () => youthList().sort(byName);
+const findY = id => DB.youths[id];
+const lessonDone = (y, rule) => rule.lessons.filter((_, i) => (y.lessons || {})[i]).length;
 
-// 評估某規定：回傳 { met, text }
+// 評估某規定：{ met, na, text }
 function evalRule(rule, y, ym) {
-  const m = y.monthly[ym] || {};
-  const yr = ym.slice(0, 4);
-  const yv = (y.yearly[yr] || {})[rule.id];
+  const n = yearN(y, ym);
+  if (rule.kind === 'lessons') { const d = lessonDone(y, rule), t = rule.lessons.length; return { met: d >= t, text: `${d}/${t}` }; }
+  if (!n) return { na: true, met: false, text: '—' };
+  const m = (y.monthly || {})[ym] || {};
+  const yv = ((y.yearly || {})['Y' + n] || {})[rule.id];
   switch (rule.kind) {
-    case 'lessons': { const n = (y.lessons || []).filter(Boolean).length; const t = rule.lessons.length; return { met: n >= t, text: `${n}/${t}` }; }
-    case 'check': if (rule.period === 'once') { const v = !!(y.once || {})[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
-                  { const v = !!m[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
-    case 'gathering': { const v = !!m.group || (m.sunday || 0) > 0; return { met: v, text: v ? '✓' : '✗' }; }
-    case 'count': if (rule.period === 'yearly') { const n = yv || 0; return { met: n >= rule.target, text: `${n}/${rule.target}` }; }
-                  { const n = m[rule.id] || 0; return { met: n >= (rule.target || 1), text: `${n}次` }; }
-    case 'hours': { const n = yv || 0; return { met: n >= rule.target, text: `${n}/${rule.target}h` }; }
+    case 'check': { const v = rule.period === 'once' ? !!(y.once || {})[rule.id] : !!m[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
+    case 'gathering': {
+      // 前兩年小排或主日皆可；第 N 年起必須是主日
+      const sundayOnly = n >= (rule.sundayFromYear || 3);
+      const v = sundayOnly ? (m.sunday || 0) > 0 : !!m.group || (m.sunday || 0) > 0;
+      return { met: v, text: v ? '✓' : '✗' };
+    }
+    case 'count': if (rule.period === 'yearly') { const c = yv || 0; return { met: c >= rule.target, text: `${c}/${rule.target}` }; }
+                  { const c = m[rule.id] || 0; return { met: c >= (rule.target || 1), text: `${c}次` }; }
+    case 'hours': { const h = yv || 0; return { met: h >= rule.target, text: `${h}/${rule.target}h` }; }
   }
   return { met: false, text: '' };
 }
-// 月度整體：只看「一次性 + 每月」的規定項目；每年項目為進度，不影響本月達標
+// 本月達標：看八堂課與每月的規定項目；每年項目為年度進度，不影響本月達標
 function monthStatus(y, ym) {
-  let fail = [];
+  const fail = [];
   for (const r of activeRules()) {
     if (r.period === 'yearly' || !isRequired(r, y, ym)) continue;
     if (!evalRule(r, y, ym).met) fail.push(colName(r));
@@ -206,12 +309,97 @@ function monthStatus(y, ym) {
 let tab = 'att';
 let curYm = thisMonth;
 let attMode = 'monthly';
+let needRender = false;
 const app = document.getElementById('app');
+const dlg = document.getElementById('dlg');
+
+function updateHeader() {
+  const sub = document.getElementById('hdrSub');
+  if (!S) { sub.textContent = '請選擇召會'; return; }
+  const sync = online ? (pending.length ? '同步中…' : '已同步') : `離線${pending.length ? `（${pending.length} 筆待上傳）` : ''}`;
+  sub.textContent = `${S.name}・得少 ${youthList().length} 位・${sync}`;
+}
+// 其他服事者的修改進來時，若正在輸入就等輸入完再更新畫面
+function scheduleRender() {
+  const a = document.activeElement;
+  const typing = a && (app.contains(a) || dlg.contains(a)) && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && a.type !== 'checkbox';
+  if (dlg.open || typing) { needRender = true; updateHeader(); return; }
+  render();
+}
+app.addEventListener('focusout', () => { if (needRender) setTimeout(() => { if (needRender) scheduleRender(); }, 0); });
+dlg.addEventListener('close', () => { if (needRender) scheduleRender(); });
 
 function render() {
+  needRender = false;
+  document.body.classList.toggle('noauth', !S);
+  updateHeader();
+  if (!S) return renderLogin();
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
-  document.getElementById('hdrSub').textContent = `${DB.locality ? DB.locality + '・' : ''}得少 ${DB.youths.length} 位`;
   ({ rules: renderRules, youth: renderYouth, att: renderAtt, stats: renderStats })[tab]();
+}
+
+/* ---------- 登入：選擇召會 ---------- */
+async function renderLogin() {
+  app.innerHTML = `<div class="card"><h3>選擇你的召會</h3><div id="clist" class="empty">載入中…</div></div>
+    <button class="btn ghost" data-act="newChurch">＋ 新增我的召會</button>`;
+  try {
+    const list = await api('');
+    const el = document.getElementById('clist'); if (!el) return;
+    el.className = '';
+    el.innerHTML = list.length
+      ? list.map(c => `<button class="church" data-act="pickChurch" data-id="${esc(c.id)}" data-name="${esc(c.name)}">${esc(c.name)}</button>`).join('')
+      : '<div class="empty">還沒有召會，請按下方「新增我的召會」</div>';
+  } catch (e) {
+    const el = document.getElementById('clist'); if (el) el.textContent = '無法連線，請確認網路後重新整理';
+  }
+}
+function loginDialog(id, name) {
+  dlg.innerHTML = `<form><h3>${esc(name)}</h3>
+    <label class="f"><span>密碼</span><input name="pw" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+    <div class="err" id="lerr"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">進入</button></div></form>`;
+  const f = dlg.querySelector('form');
+  dlg.querySelector('#cancel').onclick = () => dlg.close();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const btn = f.querySelector('button.btn:not(.ghost)'); btn.disabled = true;
+    try { const r = await api(`/${id}/login`, { password: f.pw.value }); dlg.close(); startSession(r); }
+    catch (err) { dlg.querySelector('#lerr').textContent = err.message; btn.disabled = false; }
+  };
+  dlg.showModal(); f.pw.focus();
+}
+function newChurchDialog() {
+  dlg.innerHTML = `<form><h3>新增我的召會</h3>
+    <label class="f"><span>召會名稱</span><input name="name" maxlength="30" required placeholder="例：台北市召會"></label>
+    <p class="muted" style="margin-top:0">建立後預設密碼為 <b>0000</b>，請到「① 各地規定」修改，再告訴其他服事者。</p>
+    <div class="err" id="lerr"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">建立</button></div></form>`;
+  const f = dlg.querySelector('form');
+  dlg.querySelector('#cancel').onclick = () => dlg.close();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const btn = f.querySelector('button.btn:not(.ghost)'); btn.disabled = true;
+    try { const r = await api('', { name: f.name.value.trim() }); dlg.close(); startSession(r); toast('已建立，預設密碼 0000'); }
+    catch (err) { dlg.querySelector('#lerr').textContent = err.message; btn.disabled = false; }
+  };
+  dlg.showModal(); f.name.focus();
+}
+function passwordDialog() {
+  dlg.innerHTML = `<form><h3>修改召會密碼</h3>
+    <label class="f"><span>新密碼（4 個字元以上）</span><input name="p1" type="password" minlength="4" maxlength="32" required></label>
+    <label class="f"><span>再輸入一次</span><input name="p2" type="password" required></label>
+    <p class="muted" style="margin-top:0">已登入的服事者不受影響；之後新登入的人要用新密碼。</p>
+    <div class="err" id="lerr"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">儲存</button></div></form>`;
+  const f = dlg.querySelector('form');
+  dlg.querySelector('#cancel').onclick = () => dlg.close();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    if (f.p1.value !== f.p2.value) { dlg.querySelector('#lerr').textContent = '兩次輸入不同'; return; }
+    try { await api(`/${S.id}/password`, { password: f.p1.value }, S.token); dlg.close(); toast('密碼已更新'); }
+    catch (err) { dlg.querySelector('#lerr').textContent = err.message; }
+  };
+  dlg.showModal();
 }
 
 /* ---------- 第一層：各地規定 ---------- */
@@ -219,46 +407,47 @@ function renderRules() {
   const periodTxt = { once: '一次', monthly: '每月', yearly: '每年' };
   app.innerHTML = `
     <div class="card">
-      <label class="f"><span>地方 / 召會名稱</span><input id="loc" value="${esc(DB.locality)}" placeholder="例：台北市召會"></label>
+      <div class="row between"><h3 style="margin:0">${esc(S.name)}</h3><span class="tag ${online ? 'ok' : 'opt'}">${online ? '已連線' : '離線'}</span></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn ghost sm" data-act="password">修改密碼</button>
+        <button class="btn ghost sm" data-act="logout">登出／切換召會</button>
+      </div>
     </div>
     <div class="card">
       <div class="row between"><h3>規定項目</h3><button class="btn sm" data-act="addRule">＋ 新增規定</button></div>
-      ${DB.rules.map(r => `
+      ${(DB.rules || []).map(r => `
         <div class="list-item">
           <div>
             <div><b style="${r.enabled ? '' : 'text-decoration:line-through;opacity:.5'}">${esc(r.name)}</b></div>
             <div class="row" style="gap:6px;margin-top:2px">
               <span class="tag">${periodTxt[r.period]}</span>${reqTag(r)}
-              ${r.kind === 'hours' ? `<span class="muted">${r.target} 小時</span>` : ''}
+              ${r.kind === 'hours' ? `<span class="muted">${r.target} 小時（依申請月起算年度）</span>` : ''}
               ${r.kind === 'count' ? `<span class="muted">至少 ${r.target} 次</span>` : ''}
-              ${r.kind === 'lessons' ? `<span class="muted">${r.lessons.length} 堂</span>` : ''}
+              ${r.kind === 'lessons' ? `<span class="muted">${r.lessons.length} 堂・待申請者只需完成此項</span>` : ''}
+              ${r.kind === 'gathering' ? `<span class="muted">第${r.sundayFromYear || 3}年起須為主日</span>` : ''}
             </div>
           </div>
-          <div class="row" style="flex-wrap:nowrap">
-            <button class="btn ghost sm" data-act="editRule" data-id="${r.id}">編輯</button>
-          </div>
+          <button class="btn ghost sm" data-act="editRule" data-id="${r.id}">編輯</button>
         </div>`).join('')}
     </div>
     <div class="card">
       <h3>資料備份</h3>
-      <p class="muted" style="margin-top:0">資料只存在這支手機／這台電腦的瀏覽器。換裝置或交接給其他服事者時，請用「匯出」再「匯入」。</p>
+      <p class="muted" style="margin-top:0">資料已自動同步到雲端。需要時可另外匯出一份存檔；匯入會覆蓋本召會所有人的資料。</p>
       <div class="row">
         <button class="btn ghost sm" data-act="export">匯出備份</button>
         <button class="btn ghost sm" data-act="import">匯入備份</button>
         <input type="file" id="importFile" accept="application/json" hidden>
       </div>
     </div>`;
-  document.getElementById('loc').onchange = e => { DB.locality = e.target.value.trim(); save(); render(); };
   document.getElementById('importFile').onchange = importData;
 }
 
 function ruleDialog(rule) {
   const isNew = !rule;
-  const r = rule || { id: uid(), builtin: false, enabled: true, name: '', period: 'monthly', kind: 'check', req: 'required', target: 1, fromYear: 3 };
-  const dlg = document.getElementById('dlg');
+  const r = rule ? clone(rule) : { id: uid(), builtin: false, enabled: true, name: '', period: 'monthly', kind: 'check', req: 'required', target: 1, fromYear: 3 };
   const kindOpts = p => p === 'once' ? [['check','打勾']] : p === 'monthly' ? [['check','打勾'],['count','次數']] : [['hours','時數'],['count','次數']];
   dlg.innerHTML = `
-    <form method="dialog" id="rf">
+    <form>
       <h3>${isNew ? '新增規定' : '編輯規定'}</h3>
       <label class="f"><span>名稱</span><input name="name" required value="${esc(r.name)}"></label>
       <label class="f"><span>點名表上的簡稱（選填）</span><input name="label" value="${esc(r.label || '')}" placeholder="例：家訪"></label>
@@ -277,11 +466,12 @@ function ruleDialog(rule) {
         <label class="f" id="fyWrap"><span>從第幾年起</span><input name="fromYear" type="number" min="1" max="10" value="${r.fromYear || 3}"></label>
       </div>
       <label class="f" id="tgWrap"><span id="tgLbl">目標</span><input name="target" type="number" min="0" step="0.5" value="${r.target ?? 1}"></label>
+      ${r.kind === 'gathering' ? `<label class="f"><span>第幾年起必須是主日（之前小排或主日皆可）</span><input name="sundayFromYear" type="number" min="1" max="10" value="${r.sundayFromYear || 3}"></label>` : ''}
       ${r.kind === 'lessons' ? `<label class="f"><span>八堂課名稱（一行一堂）</span><textarea name="lessons" rows="8" style="width:100%">${esc(r.lessons.join('\n'))}</textarea></label>` : ''}
       <label class="row" style="margin-bottom:12px"><input type="checkbox" name="enabled" ${r.enabled?'checked':''}> 啟用此規定</label>
       <div class="row between">
-        <div>${r.builtin ? '' : (isNew ? '' : '<button type="button" class="btn danger sm" id="delRule">刪除</button>')}</div>
-        <div class="row"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn" value="ok">儲存</button></div>
+        <div>${r.builtin || isNew ? '' : '<button type="button" class="btn danger sm" id="delRule">刪除</button>'}</div>
+        <div class="row"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">儲存</button></div>
       </div>
     </form>`;
   const f = dlg.querySelector('form');
@@ -293,23 +483,28 @@ function ruleDialog(rule) {
     }
     const kind = r.builtin ? r.kind : f.kind.value;
     dlg.querySelector('#fyWrap').style.visibility = f.req.value === 'fromYear' ? 'visible' : 'hidden';
-    const showTarget = kind === 'hours' || kind === 'count';
-    dlg.querySelector('#tgWrap').style.display = showTarget ? '' : 'none';
-    dlg.querySelector('#tgLbl').textContent = kind === 'hours' ? '目標時數' : period === 'monthly' ? '每月至少幾次' : '目標次數';
+    dlg.querySelector('#tgWrap').style.display = kind === 'hours' || kind === 'count' ? '' : 'none';
+    dlg.querySelector('#tgLbl').textContent = kind === 'hours' ? '目標時數（每一年度）' : period === 'monthly' ? '每月至少幾次' : '目標次數';
   };
   f.onchange = sync; sync();
   dlg.querySelector('#cancel').onclick = () => dlg.close();
   const del = dlg.querySelector('#delRule');
-  if (del) del.onclick = () => { if (confirm(`刪除「${r.name}」？已記錄的資料也不再顯示。`)) { DB.rules = DB.rules.filter(x => x.id !== r.id); save(); dlg.close(); render(); } };
+  if (del) del.onclick = () => {
+    if (!confirm(`刪除「${r.name}」？`)) return;
+    setPath(['rules'], DB.rules.filter(x => x.id !== r.id)); dlg.close(); render();
+  };
   f.onsubmit = e => {
     e.preventDefault();
     r.name = f.name.value.trim(); r.label = f.label.value.trim() || undefined;
     if (!r.builtin) { r.period = f.period.value; r.kind = f.kind.value; }
     r.req = f.req.value; r.fromYear = +f.fromYear.value || 1;
     r.target = +f.target.value || 0; r.enabled = f.enabled.checked;
+    if (f.sundayFromYear) r.sundayFromYear = +f.sundayFromYear.value || 3;
     if (r.kind === 'lessons') { const ls = f.lessons.value.split('\n').map(s => s.trim()).filter(Boolean); if (ls.length) r.lessons = ls; }
-    if (isNew) DB.rules.push(r);
-    save(); dlg.close(); render();
+    const rules = clone(DB.rules);
+    const i = rules.findIndex(x => x.id === r.id);
+    if (i >= 0) rules[i] = r; else rules.push(r);
+    setPath(['rules'], rules); dlg.close(); render();
   };
   dlg.showModal();
 }
@@ -320,24 +515,26 @@ function renderYouth() {
   app.innerHTML = `
     <div class="card">
       <div class="row between"><h3>得少名單</h3><button class="btn sm" data-act="addYouth">＋ 新增得少</button></div>
-      ${ys.length ? ys.map(y => `
-        <div class="list-item">
+      ${ys.length ? ys.map(y => {
+        const n = yearN(y, thisMonth);
+        return `<div class="list-item">
           <div>
             <b>${esc(y.name)}</b> ${y.birthday ? `<span class="muted">${age(y.birthday)} 歲</span>` : ''}
-            <div class="muted">${esc([y.school, y.grade].filter(Boolean).join('・'))}${y.appYear ? `・${y.appYear}年${y.appMonth}月申請・第${yearN(y, thisMonth) || '-'}年` : ''}</div>
+            ${n ? `<span class="tag">第${n}年</span>` : '<span class="tag yr">待申請</span>'}
+            <div class="muted">${esc([y.school, y.grade].filter(Boolean).join('・'))}${y.appYear ? `・${y.appYear}年${y.appMonth}月申請` : ''}</div>
           </div>
           <button class="btn ghost sm" data-act="editYouth" data-id="${y.id}">編輯</button>
-        </div>`).join('') : '<div class="empty">尚未新增得少</div>'}
+        </div>`; }).join('') : '<div class="empty">尚未新增得少</div>'}
     </div>`;
 }
 
 function youthDialog(y) {
   const isNew = !y;
-  const d = y || { id: uid(), name: '', birthday: '', school: '', grade: '', appYear: now.getFullYear(), appMonth: now.getMonth() + 1 >= 11 || now.getMonth() + 1 < 5 ? 11 : 5, lessons: [], once: {}, monthly: {}, yearly: {} };
-  const dlg = document.getElementById('dlg');
-  const years = []; for (let i = now.getFullYear() + 1; i >= now.getFullYear() - 8; i--) years.push(i);
+  const m = now.getMonth() + 1;
+  const d = y || { id: uid(), name: '', birthday: '', school: '', grade: '', appYear: m >= 11 ? now.getFullYear() + 1 : now.getFullYear(), appMonth: m >= 5 && m < 11 ? 11 : 5 };
+  const years = []; for (let i = now.getFullYear() + 2; i >= now.getFullYear() - 8; i--) years.push(i);
   dlg.innerHTML = `
-    <form method="dialog">
+    <form>
       <h3>${isNew ? '新增得少' : '編輯得少'}</h3>
       <label class="f"><span>姓名</span><input name="name" required value="${esc(d.name)}"></label>
       <label class="f"><span>生日 <span id="ageTxt"></span></span><input name="birthday" type="date" value="${esc(d.birthday)}"></label>
@@ -349,6 +546,7 @@ function youthDialog(y) {
         <label class="f"><span>申請年份</span><select name="appYear">${years.map(v => `<option ${+d.appYear===v?'selected':''}>${v}</option>`).join('')}</select></label>
         <label class="f"><span>申請梯次</span><select name="appMonth"><option value="5" ${+d.appMonth===5?'selected':''}>5月</option><option value="11" ${+d.appMonth===11?'selected':''}>11月</option></select></label>
       </div>
+      <p class="muted" style="margin-top:0">申請時間還沒到的得少為「待申請」，只需完成八堂課。</p>
       <div class="row between">
         <div>${isNew ? '' : '<button type="button" class="btn danger sm" id="delY">刪除</button>'}</div>
         <div class="row"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">儲存</button></div>
@@ -359,21 +557,21 @@ function youthDialog(y) {
   f.birthday.oninput = showAge; showAge();
   dlg.querySelector('#cancel').onclick = () => dlg.close();
   const del = dlg.querySelector('#delY');
-  if (del) del.onclick = () => { if (confirm(`刪除「${d.name}」及其所有點名紀錄？`)) { DB.youths = DB.youths.filter(x => x.id !== d.id); save(); dlg.close(); render(); } };
+  if (del) del.onclick = () => { if (confirm(`刪除「${d.name}」及其所有點名紀錄？`)) { setPath(['youths', d.id], null); dlg.close(); render(); } };
   f.onsubmit = e => {
     e.preventDefault();
-    Object.assign(d, { name: f.name.value.trim(), birthday: f.birthday.value, school: f.school.value.trim(), grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value });
-    if (isNew) DB.youths.push(d);
-    save(); dlg.close(); render();
+    const profile = { name: f.name.value.trim(), birthday: f.birthday.value, school: f.school.value.trim(), grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value };
+    if (isNew) setPath(['youths', d.id], { id: d.id, ...profile, lessons: {}, once: {}, monthly: {}, yearly: {} });
+    else for (const [k, v] of Object.entries(profile)) if (d[k] !== v) setPath(['youths', d.id, k], v);
+    dlg.close(); render();
   };
   dlg.showModal();
 }
 
 /* ---------- 第三層：點名 ---------- */
-function monthNav(yearly) {
+function monthNav() {
   return `<div class="row between" style="margin-bottom:12px">
-    <button class="btn ghost sm" data-act="prevM">‹</button>
-    <b>${yearly ? curYm.slice(0, 4) + ' 年' : ymLabel(curYm)}</b>
+    <button class="btn ghost sm" data-act="prevM">‹</button><b>${ymLabel(curYm)}</b>
     <button class="btn ghost sm" data-act="nextM">›</button></div>`;
 }
 function renderAtt() {
@@ -391,11 +589,10 @@ function renderAtt() {
   if (attMode === 'monthly') {
     body = monthNav() + `<div class="card">${ys.map(y => {
       const n = yearN(y, curYm);
-      if (!n) return `<div class="att"><span class="name">${esc(y.name)}</span> <span class="muted">尚未申請（${y.appYear}年${y.appMonth}月）</span></div>`;
-      const m = y.monthly[curYm] || {};
+      const m = (y.monthly || {})[curYm] || {};
       const st = monthStatus(y, curYm);
       return `<div class="att">
-        <div class="row between"><div><span class="name">${esc(y.name)}</span> <span class="muted">第${n}年</span></div>
+        <div class="row between"><div><span class="name">${esc(y.name)}</span> <span class="muted">${n ? `第${n}年` : '待申請・只需八堂課'}</span></div>
           <span class="tag ${st.ok ? 'ok' : 'req'}">${st.ok ? '本月達標' : '缺 ' + st.fail.join('、')}</span></div>
         <div class="checks">${mRules.map(r => {
           const key = r.kind === 'gathering' ? 'group' : r.id;
@@ -406,21 +603,23 @@ function renderAtt() {
         }).join('')}</div></div>`;
     }).join('')}</div>`;
   } else if (attMode === 'yearly') {
-    const yr = curYm.slice(0, 4);
-    body = monthNav(true) + `<div class="card">${yRules.length ? ys.map(y => {
-      const rec = (y.yearly[yr] || {});
-      return `<div class="att"><span class="name">${esc(y.name)}</span>
+    body = monthNav() + `<p class="muted" style="margin-top:-4px">每人年度依申請月起算，顯示 ${ymLabel(curYm)} 所在的年度。</p>
+      <div class="card">${yRules.length ? ys.map(y => {
+      const n = yearN(y, curYm);
+      if (!n) return `<div class="att"><span class="name">${esc(y.name)}</span> <span class="muted">待申請，尚無年度</span></div>`;
+      const rec = (y.yearly || {})['Y' + n] || {};
+      return `<div class="att"><span class="name">${esc(y.name)}</span> <span class="muted">第${n}年（${serviceRange(y, n)}）</span>
         <div class="checks">${yRules.map(r => `<label>${esc(r.label || r.name)}
-          <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0">
+          <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0">
           <span class="muted">/ ${r.target}${r.kind==='hours'?' 小時':' 次'}</span></label>`).join('')}</div></div>`;
     }).join('') : '<div class="empty">沒有每年規定</div>'}</div>`;
   } else {
     body = `<div class="card">${ys.map(y => {
-      const done = (y.lessons || []).filter(Boolean).length;
+      const done = lessonRule ? lessonDone(y, lessonRule) : 0;
       return `<div class="att">
-        <div class="row between"><span class="name">${esc(y.name)}</span>
+        <div class="row between"><div><span class="name">${esc(y.name)}</span> ${yearN(y, thisMonth) ? '' : '<span class="tag yr">待申請</span>'}</div>
         ${lessonRule ? `<span class="tag ${done >= lessonRule.lessons.length ? 'ok' : ''}">${done}/${lessonRule.lessons.length}</span>` : ''}</div>
-        ${lessonRule ? `<div class="lessons">${lessonRule.lessons.map((l, i) => `<label><input type="checkbox" data-act="lesson" data-y="${y.id}" data-i="${i}" ${(y.lessons || [])[i] ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>` : ''}
+        ${lessonRule ? `<div class="lessons">${lessonRule.lessons.map((l, i) => `<label><input type="checkbox" data-act="lesson" data-y="${y.id}" data-i="${i}" ${(y.lessons || {})[i] ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>` : ''}
         ${onceRules.length ? `<div class="checks">${onceRules.map(r => `<label><input type="checkbox" data-act="ocheck" data-y="${y.id}" data-k="${r.id}" ${(y.once || {})[r.id] ? 'checked' : ''}>${esc(r.label || r.name)}</label>`).join('')}</div>` : ''}
       </div>`;
     }).join('')}</div>`;
@@ -430,14 +629,17 @@ function renderAtt() {
 
 /* ---------- 第四層：統計 ---------- */
 function statsData() {
-  const rules = activeRules();
-  const cols = rules; // 每條規定一欄
-  const rows = sortedYouths().filter(y => yearN(y, curYm) > 0).map(y => {
-    const cells = cols.map(r => ({ ...evalRule(r, y, curYm), req: isRequired(r, y, curYm), yearly: r.period === 'yearly' }));
-    return { y, n: yearN(y, curYm), cells, st: monthStatus(y, curYm) };
-  });
+  const cols = activeRules();
+  const ys = sortedYouths();
+  const ordered = [...ys.filter(y => yearN(y, curYm) > 0), ...ys.filter(y => !yearN(y, curYm))];
+  const rows = ordered.map(y => ({
+    y, n: yearN(y, curYm),
+    cells: cols.map(r => ({ ...evalRule(r, y, curYm), req: isRequired(r, y, curYm), yearly: r.period === 'yearly' })),
+    st: monthStatus(y, curYm),
+  }));
   return { cols, rows };
 }
+const cellCls = c => c.met ? 'y' : c.na ? 'o' : c.req && !c.yearly ? 'n' : 'o';
 function renderStats() {
   const { cols, rows } = statsData();
   const ok = rows.filter(r => r.st.ok).length;
@@ -450,12 +652,12 @@ function renderStats() {
     <div class="card">
       ${rows.length ? `<div class="tbl-wrap"><table>
         <tr><th>姓名</th><th>年</th>${cols.map(c => `<th>${esc(colName(c))}</th>`).join('')}<th>本月</th></tr>
-        ${rows.map(r => `<tr><td>${esc(r.y.name)}</td><td>${r.n}</td>
-          ${r.cells.map(c => `<td class="${c.met ? 'y' : c.req && !c.yearly ? 'n' : 'o'}">${c.text}</td>`).join('')}
+        ${rows.map(r => `<tr><td>${esc(r.y.name)}</td><td>${r.n || '待'}</td>
+          ${r.cells.map(c => `<td class="${cellCls(c)}">${c.text}</td>`).join('')}
           <td class="${r.st.ok ? 'y' : 'n'}">${r.st.ok ? '達標' : '未達'}</td></tr>`).join('')}
       </table></div>
-      <p class="muted" style="margin-bottom:0">「本月達標」只看規定的八堂課與每月項目；每年項目（${cols.filter(c => c.period === 'yearly').map(c => c.label || c.name).join('、') || '無'}）顯示 ${curYm.slice(0,4)} 年累計進度。灰色為選填。</p>`
-      : '<div class="empty">此月沒有已申請的得少</div>'}
+      <p class="muted" style="margin-bottom:0">「待」＝待申請，只需完成八堂課。「本月達標」看八堂課與每月規定項目；每年項目（${cols.filter(c => c.period === 'yearly').map(colName).join('、') || '無'}）為各人申請月起算之年度累計。灰色為選填。</p>`
+      : '<div class="empty">尚未新增得少</div>'}
     </div>
     <div class="row">
       <button class="btn" data-act="shareImg">分享圖片</button>
@@ -475,7 +677,7 @@ function drawStatsImage() {
   g.fillStyle = '#1f5aa6'; g.fillRect(0, 0, W, 150);
   g.fillStyle = '#fff'; g.font = font(44, 700); g.textBaseline = 'middle';
   g.fillText('得榮少年點名統計', pad, 58);
-  g.font = font(28); g.fillText(`${DB.locality ? DB.locality + '　' : ''}${ymLabel(curYm)}`, pad, 110);
+  g.font = font(28); g.fillText(`${S.name}　${ymLabel(curYm)}`, pad, 110);
   const ok = rows.filter(r => r.st.ok).length;
   g.fillStyle = '#1f2522'; g.font = font(28, 700);
   g.fillText(`共 ${rows.length} 位　`, pad, 182);
@@ -483,7 +685,6 @@ function drawStatsImage() {
   g.fillStyle = '#2e7d4f'; g.fillText(`達標 ${ok}　`, x0, 182); x0 += g.measureText(`達標 ${ok}　`).width;
   g.fillStyle = '#b3422f'; g.fillText(`未達 ${rows.length - ok}`, x0, 182);
 
-  // 欄寬
   const nameW = 170, yrW = 60, stW = 110;
   const restW = (W - pad * 2 - nameW - yrW - stW) / Math.max(cols.length, 1);
   const xs = [pad, pad + nameW]; for (let i = 0; i < cols.length; i++) xs.push(pad + nameW + yrW + restW * i);
@@ -502,9 +703,10 @@ function drawStatsImage() {
     if (ri % 2) { g.fillStyle = '#ffffff'; g.fillRect(pad - 10, y, W - pad * 2 + 20, rowH); }
     g.font = font(26, 600); g.fillStyle = '#1f2522';
     g.fillText(fit(r.y.name, nameW), pad, y + rowH / 2);
-    g.font = font(24); center(String(r.n), pad + nameW, yrW, y + rowH / 2);
+    g.font = font(24); center(r.n ? String(r.n) : '待', pad + nameW, yrW, y + rowH / 2);
     r.cells.forEach((c, i) => {
-      g.fillStyle = c.met ? '#2e7d4f' : c.req && !c.yearly ? '#b3422f' : '#8a908c';
+      const cls = cellCls(c);
+      g.fillStyle = cls === 'y' ? '#2e7d4f' : cls === 'n' ? '#b3422f' : '#8a908c';
       g.font = font(24, c.met ? 700 : 400);
       center(c.text, xs[i + 2], restW, y + rowH / 2);
     });
@@ -512,9 +714,9 @@ function drawStatsImage() {
     center(r.st.ok ? '達標' : '未達', stX, stW, y + rowH / 2);
     y += rowH;
   });
-  if (!rows.length) { g.fillStyle = '#6b726e'; g.font = font(24); center('此月沒有已申請的得少', 0, W, y + rowH / 2); y += rowH; }
+  if (!rows.length) { g.fillStyle = '#6b726e'; g.font = font(24); center('尚未新增得少', 0, W, y + rowH / 2); y += rowH; }
   g.fillStyle = '#6b726e'; g.font = font(20);
-  g.fillText('✓ 完成　✗ 未完成　灰色：選填或每年累計中　h：小時', pad, y + 40);
+  g.fillText('✓ 完成　✗ 未完成　待：待申請（只需八堂課）　灰色：選填或年度累計中', pad, y + 40);
   return cv;
 }
 
@@ -534,8 +736,9 @@ async function shareImg() {
 function copyText() {
   const { cols, rows } = statsData();
   const ok = rows.filter(r => r.st.ok).length;
-  const lines = [`【得榮少年點名】${DB.locality ? DB.locality + ' ' : ''}${ymLabel(curYm)}`, `共 ${rows.length} 位，達標 ${ok}，未達 ${rows.length - ok}`, ''];
-  rows.forEach(r => lines.push(`${r.st.ok ? '✅' : '⭕'} ${r.y.name}（第${r.n}年）` + cols.map((c, i) => ` ${colName(c)}${r.cells[i].text}`).join('')));
+  const lines = [`【得榮少年點名】${S.name} ${ymLabel(curYm)}`, `共 ${rows.length} 位，達標 ${ok}，未達 ${rows.length - ok}`, ''];
+  rows.forEach(r => lines.push(`${r.st.ok ? '✅' : '⭕'} ${r.y.name}（${r.n ? `第${r.n}年` : '待申請'}）` +
+    cols.map((c, i) => r.cells[i].na ? '' : ` ${colName(c)}${r.cells[i].text}`).join('')));
   const t = lines.join('\n');
   (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('已複製'), () => prompt('請複製以下文字', t));
 }
@@ -544,56 +747,64 @@ function copyText() {
 function exportData() {
   const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `得少點名備份_${new Date().toISOString().slice(0, 10)}.json`; a.click();
+  a.download = `得少點名備份_${S.name}_${new Date().toISOString().slice(0, 10)}.json`; a.click();
 }
 function importData(e) {
   const file = e.target.files[0]; if (!file) return;
   file.text().then(t => {
     const d = JSON.parse(t);
-    if (!d.rules || !d.youths) throw 0;
-    if (!confirm(`匯入將覆蓋目前資料（得少 ${d.youths.length} 位），確定？`)) return;
-    DB = d; save(); render(); toast('匯入完成');
+    if (!Array.isArray(d.rules) || typeof d.youths !== 'object') throw 0;
+    const n = Object.keys(d.youths).length;
+    if (!confirm(`匯入將覆蓋「${S.name}」所有服事者看到的資料（得少 ${n} 位），確定？`)) return;
+    setPath(['rules'], d.rules); setPath(['youths'], d.youths); render(); toast('匯入完成');
   }).catch(() => toast('檔案格式錯誤'));
 }
 
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
-  document.body.appendChild(t); setTimeout(() => t.remove(), 1800);
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2000);
 }
 
 /* ============ 事件 ============ */
-const findY = id => DB.youths.find(y => y.id === id);
 document.getElementById('nav').onclick = e => { const b = e.target.closest('button'); if (b) { tab = b.dataset.tab; render(); window.scrollTo(0, 0); } };
 app.addEventListener('click', e => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const a = el.dataset.act;
-  if (a === 'addRule') ruleDialog();
+  if (a === 'pickChurch') loginDialog(el.dataset.id, el.dataset.name);
+  else if (a === 'newChurch') newChurchDialog();
+  else if (a === 'password') passwordDialog();
+  else if (a === 'logout') {
+    if (pending.length && !confirm(`還有 ${pending.length} 筆修改沒上傳，登出會遺失，確定？`)) return;
+    if (confirm('登出後需要密碼才能再進入，確定？')) logout();
+  }
+  else if (a === 'addRule') ruleDialog();
   else if (a === 'editRule') ruleDialog(DB.rules.find(r => r.id === el.dataset.id));
   else if (a === 'addYouth') youthDialog();
   else if (a === 'editYouth') youthDialog(findY(el.dataset.id));
   else if (a === 'export') exportData();
   else if (a === 'import') document.getElementById('importFile').click();
   else if (a === 'attMode') { attMode = el.dataset.v; render(); }
-  else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, (a === 'prevM' ? -1 : 1) * (attMode === 'yearly' && tab === 'att' ? 12 : 1)); render(); }
+  else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, a === 'prevM' ? -1 : 1); render(); }
   else if (a === 'step') {
-    const y = findY(el.dataset.y), m = mRec(y, curYm), k = el.dataset.k;
-    m[k] = Math.max(0, Math.min(5, (m[k] || 0) + +el.dataset.d)); save(); render();
+    const y = findY(el.dataset.y), k = el.dataset.k;
+    const cur = (((y.monthly || {})[curYm]) || {})[k] || 0;
+    setPath(['youths', y.id, 'monthly', curYm, k], Math.max(0, Math.min(5, cur + +el.dataset.d))); render();
   }
   else if (a === 'shareImg') shareImg();
   else if (a === 'copyText') copyText();
 });
 app.addEventListener('change', e => {
   const el = e.target; const a = el.dataset.act; if (!a) return;
-  const y = findY(el.dataset.y);
-  if (a === 'mcheck') mRec(y, curYm)[el.dataset.k] = el.checked;
-  else if (a === 'ocheck') (y.once ||= {})[el.dataset.k] = el.checked;
-  else if (a === 'lesson') (y.lessons ||= [])[+el.dataset.i] = el.checked;
-  else if (a === 'yval') yRec(y, curYm.slice(0, 4))[el.dataset.k] = Math.max(0, +el.value || 0);
+  const id = el.dataset.y;
+  if (a === 'mcheck') setPath(['youths', id, 'monthly', curYm, el.dataset.k], el.checked);
+  else if (a === 'ocheck') setPath(['youths', id, 'once', el.dataset.k], el.checked);
+  else if (a === 'lesson') setPath(['youths', id, 'lessons', el.dataset.i], el.checked);
+  else if (a === 'yval') setPath(['youths', id, 'yearly', 'Y' + el.dataset.n, el.dataset.k], Math.max(0, +el.value || 0));
   else return;
-  save(); render();
+  render();
 });
 
-render();
+if (S) startSession(S); else render();
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
