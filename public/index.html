@@ -429,17 +429,7 @@ function renderRules() {
           </div>
           <button class="btn ghost sm" data-act="editRule" data-id="${r.id}">編輯</button>
         </div>`).join('')}
-    </div>
-    <div class="card">
-      <h3>資料備份</h3>
-      <p class="muted" style="margin-top:0">資料已自動同步到雲端。需要時可另外匯出一份存檔；匯入會覆蓋本召會所有人的資料。</p>
-      <div class="row">
-        <button class="btn ghost sm" data-act="export">匯出備份</button>
-        <button class="btn ghost sm" data-act="import">匯入備份</button>
-        <input type="file" id="importFile" accept="application/json" hidden>
-      </div>
     </div>`;
-  document.getElementById('importFile').onchange = importData;
 }
 
 function ruleDialog(rule) {
@@ -744,23 +734,6 @@ function copyText() {
   (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('已複製'), () => prompt('請複製以下文字', t));
 }
 
-/* ---------- 備份 ---------- */
-function exportData() {
-  const blob = new Blob([JSON.stringify(DB, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `得少點名備份_${S.name}_${new Date().toISOString().slice(0, 10)}.json`; a.click();
-}
-function importData(e) {
-  const file = e.target.files[0]; if (!file) return;
-  file.text().then(t => {
-    const d = JSON.parse(t);
-    if (!Array.isArray(d.rules) || typeof d.youths !== 'object') throw 0;
-    const n = Object.keys(d.youths).length;
-    if (!confirm(`匯入將覆蓋「${S.name}」所有服事者看到的資料（得少 ${n} 位），確定？`)) return;
-    setPath(['rules'], d.rules); setPath(['youths'], d.youths); render(); toast('匯入完成');
-  }).catch(() => toast('檔案格式錯誤'));
-}
-
 function toast(msg) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t); setTimeout(() => t.remove(), 2000);
@@ -782,8 +755,6 @@ app.addEventListener('click', e => {
   else if (a === 'editRule') ruleDialog(DB.rules.find(r => r.id === el.dataset.id));
   else if (a === 'addYouth') youthDialog();
   else if (a === 'editYouth') youthDialog(findY(el.dataset.id));
-  else if (a === 'export') exportData();
-  else if (a === 'import') document.getElementById('importFile').click();
   else if (a === 'attMode') { attMode = el.dataset.v; render(); }
   else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, a === 'prevM' ? -1 : 1); render(); }
   else if (a === 'step') {
