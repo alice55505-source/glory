@@ -1,5 +1,7 @@
 {
-  "name": "derong-youth",
+  "name": "glory",
+  "workers_dev": true,
+  "preview_urls": true,
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
   "assets": {
