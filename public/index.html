@@ -93,6 +93,8 @@
   .nm { font: inherit; font-size: 17px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 10px; padding: 14px 4px; cursor: pointer; }
   .names.small { grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .names.small .nm { font-size: 14px; padding: 10px 2px; }
+  .nm small { font-size: 11px; opacity: .8; font-weight: 400; }
+  .nm:disabled { opacity: .35; }
   .nm.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
   @media (prefers-color-scheme: dark) { .nm.on { color: #0e1a2b; } }
   .roll { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--line); cursor: pointer; }
@@ -312,6 +314,12 @@ function monthAgg(y, ym) {
   for (const k of Object.keys(out)) if (k[0] === '_') { const kk = k.slice(1); out[kk] = Math.max(out[kk] || 0, out[k]); delete out[k]; }
   return out;
 }
+// 年度累計：勾選的活動時數 + 手動填的其他時數
+function yearTotal(y, n, rule) {
+  const rec = ((y.yearly || {})['Y' + n]) || {}, acts = rec[rule.id + '__a'] || {};
+  return (Number(rec[rule.id]) || 0) + (rule.activities || []).filter(a => acts[a.id]).reduce((t, a) => t + (Number(a.hours) || 0), 0);
+}
+const actOn = (y, n, rid, aid) => !!(((((y.yearly || {})['Y' + n]) || {})[rid + '__a']) || {})[aid];
 const dayVal = (y, d, k) => !!(((y.days || {})[d]) || {})[k];
 
 // 評估某規定：{ met, na, text }
@@ -320,7 +328,7 @@ function evalRule(rule, y, ym) {
   if (rule.kind === 'lessons') { const d = lessonDone(y, rule), t = rule.lessons.length; return { met: d >= t, text: `${d}/${t}` }; }
   if (!n) return { na: true, met: false, text: '—' };
   const m = monthAgg(y, ym);
-  const yv = ((y.yearly || {})['Y' + n] || {})[rule.id];
+  const yv = rule.period === 'yearly' ? yearTotal(y, n, rule) : 0;
   switch (rule.kind) {
     case 'check': { const v = rule.period === 'once' ? !!(y.once || {})[rule.id] : !!m[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
     case 'gathering': {
@@ -465,7 +473,7 @@ function renderRules() {
             <div><b style="${r.enabled ? '' : 'text-decoration:line-through;opacity:.5'}">${esc(r.name)}</b></div>
             <div class="row" style="gap:6px;margin-top:2px">
               <span class="tag">${periodTxt[r.period]}</span>${reqTag(r)}
-              ${r.kind === 'hours' ? `<span class="muted">${r.target} 小時（依申請月起算年度）</span>` : ''}
+              ${r.kind === 'hours' ? `<span class="muted">${r.target} 小時（依申請月起算年度）${(r.activities || []).length ? `・活動 ${r.activities.length} 個` : ''}</span>` : ''}
               ${r.kind === 'count' ? `<span class="muted">至少 ${r.target} 次</span>` : ''}
               ${r.kind === 'lessons' ? `<span class="muted">${r.lessons.length} 堂・待申請者只需完成此項</span>` : ''}
               ${r.kind === 'gathering' ? `<span class="muted">第${r.sundayFromYear || 3}年起須為主日</span>` : ''}
@@ -476,6 +484,10 @@ function renderRules() {
     </div>`;
 }
 
+const actRow = a => `<div class="row act" data-aid="${esc(a.id || '')}" style="flex-wrap:nowrap;margin:6px 0">
+  <input class="an" placeholder="活動名稱" value="${esc(a.name || '')}" style="flex:1;min-width:0">
+  <input class="ah hours" type="number" min="0" step="0.5" inputmode="decimal" placeholder="時數" value="${a.hours ?? ''}">
+  <button type="button" class="btn danger sm" data-del>✕</button></div>`;
 function ruleDialog(rule) {
   const isNew = !rule;
   const r = rule ? clone(rule) : { id: uid(), builtin: false, enabled: true, name: '', period: 'monthly', kind: 'check', req: 'required', target: 1, fromYear: 3 };
@@ -501,6 +513,9 @@ function ruleDialog(rule) {
       </div>
       <label class="f" id="tgWrap"><span id="tgLbl">目標</span><input name="target" type="number" min="0" step="0.5" value="${r.target ?? 1}"></label>
       ${r.kind === 'gathering' ? `<label class="f"><span>第幾年起必須是主日（之前小排或主日皆可）</span><input name="sundayFromYear" type="number" min="1" max="10" value="${r.sundayFromYear || 3}"></label>` : ''}
+      <div class="f" id="actWrap"><span class="muted" style="font-size:13px">活動（點名時直接按，自動加總時數）</span>
+        <div id="acts">${(r.activities || []).map(actRow).join('')}</div>
+        <button type="button" class="btn ghost sm" id="addAct">＋ 新增活動</button></div>
       ${r.kind === 'lessons' ? `<label class="f"><span>八堂課名稱（一行一堂）</span><textarea name="lessons" rows="8" style="width:100%">${esc(r.lessons.join('\n'))}</textarea></label>` : ''}
       <label class="row" style="margin-bottom:12px"><input type="checkbox" name="enabled" ${r.enabled?'checked':''}> 啟用此規定</label>
       <div class="row between">
@@ -518,9 +533,12 @@ function ruleDialog(rule) {
     const kind = r.builtin ? r.kind : f.kind.value;
     dlg.querySelector('#fyWrap').style.visibility = f.req.value === 'fromYear' ? 'visible' : 'hidden';
     dlg.querySelector('#tgWrap').style.display = kind === 'hours' || kind === 'count' ? '' : 'none';
+    dlg.querySelector('#actWrap').style.display = kind === 'hours' ? '' : 'none';
     dlg.querySelector('#tgLbl').textContent = kind === 'hours' ? '目標時數（每一年度）' : period === 'monthly' ? '每月至少幾次' : '目標次數';
   };
   f.onchange = sync; sync();
+  dlg.querySelector('#addAct').onclick = () => { dlg.querySelector('#acts').insertAdjacentHTML('beforeend', actRow({})); dlg.querySelector('#acts .act:last-child .an').focus(); };
+  dlg.querySelector('#acts').onclick = e => { if (e.target.closest('[data-del]')) e.target.closest('.act').remove(); };
   dlg.querySelector('#cancel').onclick = () => dlg.close();
   const del = dlg.querySelector('#delRule');
   if (del) del.onclick = () => {
@@ -534,6 +552,9 @@ function ruleDialog(rule) {
     r.req = f.req.value; r.fromYear = +f.fromYear.value || 1;
     r.target = +f.target.value || 0; r.enabled = f.enabled.checked;
     if (f.sundayFromYear) r.sundayFromYear = +f.sundayFromYear.value || 3;
+    if (r.kind === 'hours') r.activities = [...dlg.querySelectorAll('#acts .act')]
+      .map(row => ({ id: row.dataset.aid || uid(), name: row.querySelector('.an').value.trim(), hours: +row.querySelector('.ah').value || 0 }))
+      .filter(a => a.name);
     if (r.kind === 'lessons') { const ls = f.lessons.value.split('\n').map(s => s.trim()).filter(Boolean); if (ls.length) r.lessons = ls; }
     const rules = clone(DB.rules);
     const i = rules.findIndex(x => x.id === r.id);
@@ -604,17 +625,36 @@ function youthDialog(y) {
 }
 
 /* ---------- 第三層：點名 ---------- */
+// 年度活動（選聚會頁可直接點名）
+function actItems() {
+  return activeRules().filter(r => r.period === 'yearly' && r.kind === 'hours')
+    .flatMap(r => (r.activities || []).map(a => ({ key: `act|${r.id}|${a.id}`, label: a.name, sub: `${colName(r)} ${a.hours}h` })));
+}
+// 選聚會頁目前選的聚會／活動，對應到這位得少的紀錄位置
+function meetRef(y) {
+  if (String(selMeet).startsWith('act|')) {
+    const [, rid, aid] = selMeet.split('|'), n = yearN(y, selDate.slice(0, 7));
+    if (!n) return { val: false };
+    return { path: ['youths', y.id, 'yearly', 'Y' + n, rid + '__a', aid], val: actOn(y, n, rid, aid) };
+  }
+  return { path: ['youths', y.id, 'days', selDate, selMeet], val: dayVal(y, selDate, selMeet) };
+}
 // 選名字頁下方：這位得少的年度時數
 function yearCard(y, n, yRules) {
   if (!yRules.length) return '';
   if (!n) return '<div class="card"><h3>年度</h3><div class="muted">待申請，尚無年度</div></div>';
   const rec = (y.yearly || {})['Y' + n] || {};
   return `<div class="card"><h3>第${n}年 <span class="muted">（${serviceRange(y, n)}）</span></h3>
-    <div class="checks">${yRules.map(r => {
-      const met = (rec[r.id] || 0) >= r.target;
-      return `<label>${esc(r.label || r.name)}
-        <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0">
-        <span class="${met ? 'y' : 'muted'}">/ ${r.target}${r.kind==='hours'?' 小時':' 次'}${met ? ' ✓' : ''}</span></label>`; }).join('')}</div></div>`;
+    ${yRules.map(r => {
+      const unit = r.kind === 'hours' ? ' 小時' : ' 次';
+      const tot = r.kind === 'hours' ? yearTotal(y, n, r) : (Number(rec[r.id]) || 0), met = tot >= r.target;
+      const acts = r.kind === 'hours' ? (r.activities || []) : [];
+      return `<div class="att">
+        <div class="row between"><b>${esc(r.label || r.name)}</b><span class="${met ? 'y' : 'muted'}">${tot} / ${r.target}${unit}${met ? ' ✓' : ''}</span></div>
+        ${acts.length ? `<div class="names small" style="margin-top:8px">${acts.map(a => `<button class="nm ${actOn(y, n, r.id, a.id) ? 'on' : ''}" data-act="actBtn" data-y="${y.id}" data-n="${n}" data-r="${r.id}" data-a="${a.id}">${esc(a.name)}<br><small>${a.hours}h</small></button>`).join('')}</div>` : ''}
+        <label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:8px">${acts.length ? '其他' : '填寫'}${unit.trim()}
+          <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0"></label>
+      </div>`; }).join('')}</div>`;
 }
 // 選名字頁下方：這位得少的八堂課
 function lessonCard(y, lessonRule, onceRules) {
@@ -666,10 +706,10 @@ function renderAtt() {
       + yearCard(y, n, yRules) + lessonCard(y, lessonRule, onceRules);
   } else if (attMode === 'byMeet') {
     // 2. 選聚會點名字
-    const items = dayItems(selDate);
-    if (!items.some(it => it.key === selMeet)) selMeet = (items.find(it => it.sundayOnly) || items.find(it => it.key === 'group') || items[0] || {}).key;
+    const items = dayItems(selDate), acts = actItems();
+    if (!items.some(it => it.key === selMeet) && !acts.some(it => it.key === selMeet)) selMeet = (items.find(it => it.sundayOnly) || items.find(it => it.key === 'group') || items[0] || {}).key;
     const dt = new Date(selDate + 'T00:00');
-    const present = ys.filter(y => dayVal(y, selDate, selMeet)).length;
+    const present = ys.filter(y => meetRef(y).val).length;
     body = `<div class="card">
         <div class="row between" style="flex-wrap:nowrap">
           <button class="btn ghost sm" data-act="prevD">‹</button>
@@ -678,11 +718,13 @@ function renderAtt() {
         </div>
         <div class="muted" style="text-align:center;margin:4px 0 10px">週${'日一二三四五六'[dt.getDay()]}${dt.getDay() ? '（主日只在週日）' : ''}</div>
         <div class="pick">${items.map(it => `<button data-act="meet" data-k="${it.key}" class="${it.key === selMeet ? 'on' : ''}">${esc(it.label)}</button>`).join('')}</div>
+        ${acts.length ? `<div class="muted" style="margin:10px 0 4px">活動（記入各人當時所在年度）</div>
+        <div class="pick">${acts.map(it => `<button data-act="meet" data-k="${it.key}" class="${it.key === selMeet ? 'on' : ''}">${esc(it.label)} <small>${esc(it.sub)}</small></button>`).join('')}</div>` : ''}
       </div>
       <div class="card">
         <div class="row between" style="margin-bottom:10px"><b>出席 ${present} / ${ys.length}</b>
-          <button class="btn ghost sm" data-act="allMeet">${present === ys.length ? '全部取消' : '全選'}</button></div>
-        <div class="names">${ys.map(y => `<button class="nm ${dayVal(y, selDate, selMeet) ? 'on' : ''}" data-act="rollcall" data-y="${y.id}">${esc(y.name)}</button>`).join('')}</div>
+          <button class="btn ghost sm" data-act="allMeet">${present && present === ys.filter(y => meetRef(y).path).length ? '全部取消' : '全選'}</button></div>
+        <div class="names">${ys.map(y => { const m = meetRef(y); return `<button class="nm ${m.val ? 'on' : ''}" data-act="rollcall" data-y="${y.id}" ${m.path ? '' : 'disabled title="待申請"'}>${esc(y.name)}</button>`; }).join('')}</div>
         <p class="muted" style="margin:10px 0 0">點名字＝出席，再點一次取消</p>
       </div>`;
   }
@@ -835,15 +877,16 @@ app.addEventListener('click', e => {
     rule.lessons.forEach((_, i) => { if (!!(y.lessons || {})[i] === all) setPath(['youths', y.id, 'lessons', String(i)], !all); });
     render();
   }
-  else if (a === 'rollcall') { setPath(['youths', el.dataset.y, 'days', selDate, selMeet], !el.classList.contains('on')); render(); }
+  else if (a === 'rollcall') { const m = meetRef(findY(el.dataset.y)); if (m.path) { setPath(m.path, !m.val); render(); } }
+  else if (a === 'actBtn') { setPath(['youths', el.dataset.y, 'yearly', 'Y' + el.dataset.n, el.dataset.r + '__a', el.dataset.a], !el.classList.contains('on')); render(); }
   else if (a === 'meet') { selMeet = el.dataset.k; render(); }
   else if (a === 'prevD' || a === 'nextD') {
     const d = new Date(selDate + 'T00:00'); d.setDate(d.getDate() + (a === 'prevD' ? -1 : 1));
-    selDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; selMeet = null; render();
+    selDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; if (!String(selMeet).startsWith('act|')) selMeet = null; render();
   }
   else if (a === 'allMeet') {
-    const ys = sortedYouths(), all = ys.every(y => dayVal(y, selDate, selMeet));
-    for (const y of ys) if (dayVal(y, selDate, selMeet) === all) setPath(['youths', y.id, 'days', selDate, selMeet], !all);
+    const refs = sortedYouths().map(meetRef).filter(m => m.path), all = refs.every(m => m.val);
+    for (const m of refs) if (m.val === all) setPath(m.path, !all);
     render();
   }
   else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, a === 'prevM' ? -1 : 1); render(); }
@@ -853,7 +896,7 @@ app.addEventListener('click', e => {
 app.addEventListener('change', e => {
   const el = e.target;
   if (el.id === 'selYouth') { selYouth = el.value; render(); return; }
-  if (el.id === 'selDate') { if (el.value) { selDate = el.value; selMeet = null; } render(); return; }
+  if (el.id === 'selDate') { if (el.value) { selDate = el.value; if (!String(selMeet).startsWith('act|')) selMeet = null; } render(); return; }
   const a = el.dataset.act; if (!a) return;
   const id = el.dataset.y;
   if (a === 'ocheck') setPath(['youths', id, 'once', el.dataset.k], el.checked);
