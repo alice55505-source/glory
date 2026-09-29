@@ -521,7 +521,7 @@ function renderYouth() {
           <div>
             <b>${esc(y.name)}</b> ${y.birthday ? `<span class="muted">${age(y.birthday)} 歲</span>` : ''}
             ${n ? `<span class="tag">第${n}年</span>` : '<span class="tag yr">待申請</span>'}
-            <div class="muted">${esc([y.school, y.grade].filter(Boolean).join('・'))}${y.appYear ? `・${y.appYear}年${y.appMonth}月申請` : ''}</div>
+            <div class="muted">${esc([y.shepherd && '牧養：' + y.shepherd, y.school, y.grade].filter(Boolean).join('・'))}${y.appYear ? `・${y.appYear}年${y.appMonth}月申請` : ''}</div>
           </div>
           <button class="btn ghost sm" data-act="editYouth" data-id="${y.id}">編輯</button>
         </div>`; }).join('') : '<div class="empty">尚未新增得少</div>'}
@@ -531,12 +531,13 @@ function renderYouth() {
 function youthDialog(y) {
   const isNew = !y;
   const m = now.getMonth() + 1;
-  const d = y || { id: uid(), name: '', birthday: '', school: '', grade: '', appYear: m >= 11 ? now.getFullYear() + 1 : now.getFullYear(), appMonth: m >= 5 && m < 11 ? 11 : 5 };
+  const d = y || { id: uid(), name: '', shepherd: '', birthday: '', school: '', grade: '', appYear: m >= 11 ? now.getFullYear() + 1 : now.getFullYear(), appMonth: m >= 5 && m < 11 ? 11 : 5 };
   const years = []; for (let i = now.getFullYear() + 2; i >= now.getFullYear() - 8; i--) years.push(i);
   dlg.innerHTML = `
     <form>
       <h3>${isNew ? '新增得少' : '編輯得少'}</h3>
       <label class="f"><span>姓名</span><input name="name" required value="${esc(d.name)}"></label>
+      <label class="f"><span>牧養者姓名</span><input name="shepherd" value="${esc(d.shepherd)}"></label>
       <label class="f"><span>生日 <span id="ageTxt"></span></span><input name="birthday" type="date" value="${esc(d.birthday)}"></label>
       <div class="grid2">
         <label class="f"><span>學校</span><input name="school" value="${esc(d.school)}"></label>
@@ -560,9 +561,9 @@ function youthDialog(y) {
   if (del) del.onclick = () => { if (confirm(`刪除「${d.name}」及其所有點名紀錄？`)) { setPath(['youths', d.id], null); dlg.close(); render(); } };
   f.onsubmit = e => {
     e.preventDefault();
-    const profile = { name: f.name.value.trim(), birthday: f.birthday.value, school: f.school.value.trim(), grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value };
+    const profile = { name: f.name.value.trim(), shepherd: f.shepherd.value.trim(), birthday: f.birthday.value, school: f.school.value.trim(), grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value };
     if (isNew) setPath(['youths', d.id], { id: d.id, ...profile, lessons: {}, once: {}, monthly: {}, yearly: {} });
-    else for (const [k, v] of Object.entries(profile)) if (d[k] !== v) setPath(['youths', d.id, k], v);
+    else for (const [k, v] of Object.entries(profile)) if ((d[k] ?? '') !== v) setPath(['youths', d.id, k], v);
     dlg.close(); render();
   };
   dlg.showModal();
