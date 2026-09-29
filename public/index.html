@@ -219,6 +219,8 @@ function connect() {
       if (!Array.isArray(DB.rules)) setPath(['rules'], defaultRules());
       DB.youths ||= {};
       persistLocal(); scheduleRender();
+    } else if (msg.type === 'rename') {
+      S.name = msg.name; lsSet('derong-session', S); scheduleRender();
     } else if (msg.type === 'ack') {
       pending = pending.filter(o => o.id !== msg.id);
       if (msg.error) toast(msg.error);
@@ -455,6 +457,22 @@ function newChurchDialog() {
   };
   dlg.showModal(); f.name.focus();
 }
+function renameDialog() {
+  dlg.innerHTML = `<form><h3>修改召會名稱</h3>
+    <label class="f"><span>召會名稱</span><input name="name" maxlength="30" required value="${esc(S.name)}"></label>
+    <div class="err" id="lerr"></div>
+    <div class="row" style="justify-content:flex-end"><button type="button" class="btn ghost" id="cancel">取消</button><button class="btn">儲存</button></div></form>`;
+  const f = dlg.querySelector('form');
+  dlg.querySelector('#cancel').onclick = () => dlg.close();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const r = await api(`/${S.id}/rename`, { name: f.name.value.trim() }, S.token);
+      S.name = r.name; lsSet('derong-session', S); dlg.close(); render(); toast('名稱已更新');
+    } catch (err) { dlg.querySelector('#lerr').textContent = err.message; }
+  };
+  dlg.showModal(); f.name.focus();
+}
 function passwordDialog() {
   dlg.innerHTML = `<form><h3>修改召會密碼</h3>
     <label class="f"><span>新密碼（4 個字元以上）</span><input name="p1" type="password" minlength="4" maxlength="32" required></label>
@@ -480,6 +498,7 @@ function renderRules() {
     <div class="card">
       <div class="row between"><h3 style="margin:0">${esc(S.name)}</h3><span class="tag ${online ? 'ok' : 'opt'}">${online ? '已連線' : '離線'}</span></div>
       <div class="row" style="margin-top:10px">
+        <button class="btn ghost sm" data-act="rename">修改名稱</button>
         <button class="btn ghost sm" data-act="password">修改密碼</button>
         <button class="btn ghost sm" data-act="logout">登出／切換召會</button>
       </div>
@@ -899,6 +918,7 @@ app.addEventListener('click', e => {
   if (a === 'pickChurch') loginDialog(el.dataset.id, el.dataset.name);
   else if (a === 'newChurch') newChurchDialog();
   else if (a === 'password') passwordDialog();
+  else if (a === 'rename') renameDialog();
   else if (a === 'logout') {
     if (pending.length && !confirm(`還有 ${pending.length} 筆修改沒上傳，登出會遺失，確定？`)) return;
     if (confirm('登出後需要密碼才能再進入，確定？')) logout();

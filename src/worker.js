@@ -5,6 +5,7 @@ import { DurableObject } from 'cloudflare:workers';
 //   POST /api/churches                 新增召會 {name}（預設密碼 0000）→ {id, name, token}
 //   POST /api/churches/:id/login       {password} → {id, name, token}
 //   POST /api/churches/:id/password    {password}（需 Authorization: Bearer token）
+//   POST /api/churches/:id/rename      {name}（需 Authorization: Bearer token）
 //   GET  /api/churches/:id/ws?token=   即時同步 WebSocket
 
 const DEFAULT_PASSWORD = '0000';
@@ -61,6 +62,16 @@ export default {
       const res = await room.setPassword(token, String((await readJson(req)).password || ''));
       return json(res, res.error ? 403 : 200);
     }
+    if (action === 'rename' && req.method === 'POST') {
+      const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+      const name = String((await readJson(req)).name || '').trim();
+      if (!name || name.length > 30) return json({ error: '請輸入召會名稱（30 字以內）' }, 400);
+      if (!(await room.validToken(token))) return json({ error: '請重新登入' }, 403);
+      const res = await registry.rename(id, name);
+      if (res.error) return json(res, 400);
+      await room.setName(name);
+      return json({ ok: true, name });
+    }
     if (action === 'ws') {
       if (req.headers.get('upgrade') !== 'websocket') return json({ error: 'expected websocket' }, 426);
       return room.fetch(req);
@@ -77,6 +88,15 @@ export class Registry extends DurableObject {
   }
   async has(id) {
     return ((await this.ctx.storage.get('churches')) || []).some(c => c.id === id);
+  }
+  async rename(id, name) {
+    const list = (await this.ctx.storage.get('churches')) || [];
+    if (list.some(c => c.name === name && c.id !== id)) return { error: '已有同名的召會' };
+    const c = list.find(c => c.id === id);
+    if (!c) return { error: '找不到這個召會' };
+    c.name = name;
+    await this.ctx.storage.put('churches', list);
+    return { ok: true };
   }
   async create(name) {
     const list = (await this.ctx.storage.get('churches')) || [];
@@ -122,6 +142,15 @@ export class ChurchRoom extends DurableObject {
     }
     await this.ctx.storage.delete('fail');
     return { id: meta.id, name: meta.name, token: await this.issueToken() };
+  }
+
+  // 改名稱並通知所有連線中的服事者
+  async setName(name) {
+    const meta = await this.ctx.storage.get('meta');
+    meta.name = name;
+    await this.ctx.storage.put('meta', meta);
+    const out = JSON.stringify({ type: 'rename', name });
+    for (const ws of this.ctx.getWebSockets()) { try { ws.send(out); } catch {} }
   }
 
   // 改密碼只影響之後新登入的人；已登入的服事者保持登入
