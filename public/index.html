@@ -136,7 +136,25 @@
 
 <script>
 /* ============ 基本 ============ */
-const GRADES = ['小五','小六','國一','國二','國三','高一','高二','高三','大專','其他'];
+const GRADES = ['小一','小二','小三','小四','小五','小六','國一','國二','國三','高一','高二','高三','大專','其他'];
+const STAGE_NAME = { 國: '國中', 高: '高中', 大: '大專' };
+// 學年：8 月起算新學年
+const schoolYearOf = (yr, mo) => mo >= 8 ? yr : yr - 1;
+// 填寫的年級是「申請時年級」，之後每學年自動升一級（到大專為止）
+function gradeAt(y, sy) {
+  const i = GRADES.indexOf(y.grade);
+  if (i < 0 || y.grade === '其他' || !y.appYear) return y.grade || '';
+  const j = i + sy - schoolYearOf(y.appYear, +y.appMonth);
+  return GRADES[Math.max(0, Math.min(GRADES.indexOf('大專'), j))];
+}
+const curSY = () => schoolYearOf(now.getFullYear(), now.getMonth() + 1);
+const currentGrade = y => gradeAt(y, curSY());
+// 升國中／高中／大專後，學校還沒更新 → 回傳提示文字
+function schoolAlert(y) {
+  if (!y.grade || y.grade === '其他' || !y.appYear) return '';
+  const was = gradeAt(y, y.schoolSY ?? schoolYearOf(y.appYear, +y.appMonth)), cur = currentGrade(y);
+  return was[0] !== cur[0] && STAGE_NAME[cur[0]] ? `已升${STAGE_NAME[cur[0]]}，請確認學校` : '';
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
 const clone = v => v === undefined ? null : JSON.parse(JSON.stringify(v));
 const lsGet = k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
@@ -568,7 +586,9 @@ function ruleDialog(rule) {
 /* ---------- 第二層：得少資料 ---------- */
 function renderYouth() {
   const ys = sortedYouths();
+  const alerts = ys.filter(schoolAlert).length;
   app.innerHTML = `
+    ${alerts ? `<div class="card" style="background:var(--warn-soft);border-color:var(--warn);color:var(--warn)">有 ${alerts} 位得少升學了，請按「編輯」確認或更新學校。</div>` : ''}
     <div class="card">
       <div class="row between"><h3>得少名單</h3><button class="btn sm" data-act="addYouth">＋ 新增得少</button></div>
       ${ys.length ? ys.map(y => {
@@ -577,7 +597,8 @@ function renderYouth() {
           <div>
             <b>${esc(y.name)}</b> ${y.birthday ? `<span class="muted">${age(y.birthday)} 歲</span>` : ''}
             ${n ? `<span class="tag">第${n}年</span>` : '<span class="tag yr">待申請</span>'}
-            <div class="muted">${esc([y.school, y.grade, y.appYear && `${y.appYear}年${y.appMonth}月申請`, y.shepherd && '牧養：' + y.shepherd].filter(Boolean).join('・'))}</div>
+            ${schoolAlert(y) ? `<div><span class="tag yr">${schoolAlert(y)}</span></div>` : ''}
+            <div class="muted">${esc([y.school, currentGrade(y), y.appYear && `${y.appYear}年${y.appMonth}月申請`, y.shepherd && '牧養：' + y.shepherd].filter(Boolean).join('・'))}</div>
           </div>
           <button class="btn ghost sm" data-act="editYouth" data-id="${y.id}">編輯</button>
         </div>`; }).join('') : '<div class="empty">尚未新增得少</div>'}
@@ -596,12 +617,13 @@ function youthDialog(y) {
       <label class="f"><span>生日 <span id="ageTxt"></span></span><input name="birthday" type="date" value="${esc(d.birthday)}"></label>
       <div class="grid2">
         <label class="f"><span>學校</span><input name="school" value="${esc(d.school)}"></label>
-        <label class="f"><span>年級</span><select name="grade"><option value=""></option>${GRADES.map(g => `<option ${d.grade===g?'selected':''}>${g}</option>`).join('')}</select></label>
+        <label class="f"><span>申請時年級 <b id="curGrade"></b></span><select name="grade"><option value=""></option>${GRADES.map(g => `<option ${d.grade===g?'selected':''}>${g}</option>`).join('')}</select></label>
       </div>
       <div class="grid2">
         <label class="f"><span>申請年份</span><select name="appYear">${years.map(v => `<option ${+d.appYear===v?'selected':''}>${v}</option>`).join('')}</select></label>
         <label class="f"><span>申請梯次</span><select name="appMonth"><option value="5" ${+d.appMonth===5?'selected':''}>5月</option><option value="11" ${+d.appMonth===11?'selected':''}>11月</option></select></label>
       </div>
+      ${schoolAlert(d) ? `<p class="tag yr" style="display:block;border-radius:8px;padding:6px 10px;margin:-4px 0 10px">${schoolAlert(d)}（按儲存即確認）</p>` : ''}
       <label class="f"><span>牧養者姓名</span><input name="shepherd" value="${esc(d.shepherd)}"></label>
       <p class="muted" style="margin-top:0">申請時間還沒到的得少為「待申請」，只需完成八堂課。</p>
       <div class="row between">
@@ -612,6 +634,8 @@ function youthDialog(y) {
   const f = dlg.querySelector('form');
   const showAge = () => { const a = age(f.birthday.value); dlg.querySelector('#ageTxt').textContent = a !== '' ? `（${a} 歲）` : ''; };
   f.birthday.oninput = showAge; showAge();
+  const showGrade = () => { const g = gradeAt({ grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value }, curSY()); dlg.querySelector('#curGrade').textContent = g && g !== f.grade.value ? `（目前 ${g}）` : ''; };
+  f.grade.onchange = f.appYear.onchange = f.appMonth.onchange = showGrade; showGrade();
   dlg.querySelector('#cancel').onclick = () => dlg.close();
   const del = dlg.querySelector('#delY');
   if (del) del.onclick = () => { if (confirm(`刪除「${d.name}」及其所有點名紀錄？`)) { setPath(['youths', d.id], null); dlg.close(); render(); } };
@@ -619,7 +643,11 @@ function youthDialog(y) {
     e.preventDefault();
     const profile = { name: f.name.value.trim(), shepherd: f.shepherd.value.trim(), birthday: f.birthday.value, school: f.school.value.trim(), grade: f.grade.value, appYear: +f.appYear.value, appMonth: +f.appMonth.value };
     if (isNew) setPath(['youths', d.id], { id: d.id, ...profile, lessons: {}, once: {}, monthly: {}, yearly: {} });
-    else for (const [k, v] of Object.entries(profile)) if ((d[k] ?? '') !== v) setPath(['youths', d.id, k], v);
+    else {
+      // 有升學提示或改了學校 → 記下學校資料已在本學年確認
+      if (schoolAlert(d) || (d.school ?? '') !== profile.school) profile.schoolSY = curSY();
+      for (const [k, v] of Object.entries(profile)) if ((d[k] ?? '') !== v) setPath(['youths', d.id, k], v);
+    }
     dlg.close(); render();
   };
   dlg.showModal();
