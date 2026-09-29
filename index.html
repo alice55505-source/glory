@@ -4,17 +4,24 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>得榮少年點名</title>
-<meta name="theme-color" content="#2f5d50">
+<meta name="theme-color" content="#1f5aa6">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="得少點名">
 <style>
   :root {
-    --bg: #f4f3ef; --card: #ffffff; --ink: #1f2522; --muted: #6b726e; --line: #e2e0d9;
-    --accent: #2f5d50; --accent-soft: #e3eee9; --ok: #2e7d4f; --ok-soft: #e2f3e8;
+    --bg: #f3f6fa; --card: #ffffff; --ink: #1f2522; --muted: #6b726e; --line: #e2e0d9;
+    --accent: #1f5aa6; --accent-soft: #e3edf9; --ok: #2e7d4f; --ok-soft: #e2f3e8;
     --bad: #b3422f; --bad-soft: #f8e6e2; --warn: #a86f12; --warn-soft: #f8eed9;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #151816; --card: #1f2321; --ink: #e8ebe9; --muted: #9aa29d; --line: #2f3531;
-      --accent: #7fc0a9; --accent-soft: #23352e; --ok: #6fcf97; --ok-soft: #1e3327;
+      --accent: #8cc0f5; --accent-soft: #1d2c3d; --ok: #6fcf97; --ok-soft: #1e3327;
       --bad: #ef8b78; --bad-soft: #3a2420; --warn: #e3b25a; --warn-soft: #382d1a;
     }
   }
@@ -23,7 +30,7 @@
     font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
     font-size: 16px; line-height: 1.5; padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
   header { position: sticky; top: 0; z-index: 5; background: var(--accent); color: #fff; padding: 12px 16px; }
-  @media (prefers-color-scheme: dark) { header { color: #10201a; } }
+  @media (prefers-color-scheme: dark) { header { color: #0e1a2b; } }
   header h1 { margin: 0; font-size: 18px; }
   header .sub { font-size: 13px; opacity: .85; }
   main { max-width: 860px; margin: 0 auto; padding: 16px; }
@@ -49,7 +56,7 @@
   label.f input, label.f select { width: 100%; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
   button.btn { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
-  @media (prefers-color-scheme: dark) { button.btn { color: #10201a; } }
+  @media (prefers-color-scheme: dark) { button.btn { color: #0e1a2b; } }
   button.btn.ghost { background: transparent; color: var(--accent); }
   button.btn.danger { background: transparent; border-color: var(--bad); color: var(--bad); }
   button.btn.sm { padding: 4px 10px; font-size: 14px; }
@@ -464,8 +471,8 @@ function drawStatsImage() {
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d');
   const font = (s, w = 400) => `${w} ${s}px "PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif`;
-  g.fillStyle = '#f4f3ef'; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#2f5d50'; g.fillRect(0, 0, W, 150);
+  g.fillStyle = '#f3f6fa'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#1f5aa6'; g.fillRect(0, 0, W, 150);
   g.fillStyle = '#fff'; g.font = font(44, 700); g.textBaseline = 'middle';
   g.fillText('得榮少年點名統計', pad, 58);
   g.font = font(28); g.fillText(`${DB.locality ? DB.locality + '　' : ''}${ymLabel(curYm)}`, pad, 110);
@@ -482,8 +489,8 @@ function drawStatsImage() {
   const xs = [pad, pad + nameW]; for (let i = 0; i < cols.length; i++) xs.push(pad + nameW + yrW + restW * i);
   const stX = pad + nameW + yrW + restW * cols.length;
   let y = headH;
-  g.fillStyle = '#e3eee9'; g.fillRect(pad - 10, y, W - pad * 2 + 20, thH);
-  g.fillStyle = '#2f5d50'; g.font = font(22, 700);
+  g.fillStyle = '#e3edf9'; g.fillRect(pad - 10, y, W - pad * 2 + 20, thH);
+  g.fillStyle = '#1f5aa6'; g.font = font(22, 700);
   const center = (t, x, w, yy) => { g.textAlign = 'center'; g.fillText(t, x + w / 2, yy); g.textAlign = 'left'; };
   const fit = (t, w) => { let s = t; while (g.measureText(s).width > w - 8 && s.length > 1) s = s.slice(0, -1); return s; };
   g.fillText('姓名', pad, y + thH / 2);
@@ -587,6 +594,7 @@ app.addEventListener('change', e => {
 });
 
 render();
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
