@@ -75,10 +75,22 @@
   .att .name { font-weight: 700; }
   .checks { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 6px; }
   .checks label { display: inline-flex; align-items: center; gap: 6px; }
-  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .stepper button { font: inherit; width: 34px; height: 32px; border: 0; background: var(--bg); color: var(--ink); cursor: pointer; }
-  .stepper span { min-width: 30px; text-align: center; }
   .hours { width: 72px; }
+  .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+  .cal .dow { text-align: center; font-size: 12px; color: var(--muted); padding: 2px 0; }
+  .cal .dow.sun, .cal .day.sun .dn { color: var(--bad); }
+  .cal .day { background: var(--bg); border-radius: 6px; padding: 2px 2px 3px; min-height: 64px; display: flex; flex-direction: column; gap: 2px; }
+  .cal .day.today { outline: 2px solid var(--accent); }
+  .cal .dn { font-size: 12px; font-weight: 700; padding-left: 2px; }
+  .chip { font: inherit; font-size: 11px; line-height: 1.2; border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 5px; padding: 3px 0; cursor: pointer; width: 100%; }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  @media (prefers-color-scheme: dark) { .chip.on { color: #0e1a2b; } }
+  .pick { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pick button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 99px; padding: 6px 14px; cursor: pointer; }
+  .pick button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .pick button:disabled { opacity: .35; }
+  .roll { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--line); cursor: pointer; }
+  .roll:first-child { border-top: 0; }
   .lessons { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 6px; }
   .lessons label { display: flex; align-items: center; gap: 6px; font-size: 14px; }
   .tbl-wrap { overflow-x: auto; }
@@ -274,12 +286,34 @@ const sortedYouths = () => youthList().sort(byName);
 const findY = id => DB.youths[id];
 const lessonDone = (y, rule) => rule.lessons.filter((_, i) => (y.lessons || {})[i]).length;
 
+// 每日點名項目（家訪、小排每天都有；主日只在週日）
+function dayItems(dateStr) {
+  const sun = new Date(dateStr + 'T00:00').getDay() === 0;
+  return activeRules().filter(r => r.period === 'monthly').map(r => ({
+    key: r.kind === 'gathering' ? 'group' : r.id,
+    label: r.kind === 'gathering' ? '小排' : (r.label || r.name),
+    sundayOnly: r.id === 'sunday',
+  })).filter(it => sun || !it.sundayOnly);
+}
+// 當月彙總：每項 = 當月勾選天數（也相容舊版每月直接記錄的資料）
+function monthAgg(y, ym) {
+  const out = {};
+  for (const [k, v] of Object.entries((y.monthly || {})[ym] || {})) out[k] = Number(v) || 0;
+  for (const [d, rec] of Object.entries(y.days || {})) {
+    if (!d.startsWith(ym)) continue;
+    for (const [k, v] of Object.entries(rec || {})) if (v) out['_' + k] = (out['_' + k] || 0) + 1;
+  }
+  for (const k of Object.keys(out)) if (k[0] === '_') { const kk = k.slice(1); out[kk] = Math.max(out[kk] || 0, out[k]); delete out[k]; }
+  return out;
+}
+const dayVal = (y, d, k) => !!(((y.days || {})[d]) || {})[k];
+
 // 評估某規定：{ met, na, text }
 function evalRule(rule, y, ym) {
   const n = yearN(y, ym);
   if (rule.kind === 'lessons') { const d = lessonDone(y, rule), t = rule.lessons.length; return { met: d >= t, text: `${d}/${t}` }; }
   if (!n) return { na: true, met: false, text: '—' };
-  const m = (y.monthly || {})[ym] || {};
+  const m = monthAgg(y, ym);
   const yv = ((y.yearly || {})['Y' + n] || {})[rule.id];
   switch (rule.kind) {
     case 'check': { const v = rule.period === 'once' ? !!(y.once || {})[rule.id] : !!m[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
@@ -308,7 +342,11 @@ function monthStatus(y, ym) {
 /* ============ 畫面 ============ */
 let tab = 'att';
 let curYm = thisMonth;
-let attMode = 'monthly';
+let attMode = 'byName';
+let selYouth = null;
+const todayStr = `${thisMonth}-${pad(now.getDate())}`;
+let selDate = todayStr;
+let selMeet = null;
 let needRender = false;
 const app = document.getElementById('app');
 const dlg = document.getElementById('dlg');
@@ -573,26 +611,50 @@ function renderAtt() {
   const mRules = rules.filter(r => r.period === 'monthly');
   const yRules = rules.filter(r => r.period === 'yearly');
   const seg = `<div class="seg" style="margin-bottom:12px">
-      ${[['monthly','每月'],['yearly','每年'],['once','八堂課']].map(([v,t]) => `<button data-act="attMode" data-v="${v}" class="${attMode===v?'on':''}">${t}</button>`).join('')}</div>`;
+      ${[['byName','選名字'],['byMeet','選聚會'],['yearly','每年'],['once','八堂課']].map(([v,t]) => `<button data-act="attMode" data-v="${v}" class="${attMode===v?'on':''}">${t}</button>`).join('')}</div>`;
   if (!ys.length) { app.innerHTML = seg + '<div class="card empty">請先到「② 得少資料」新增得少</div>'; return; }
 
   let body = '';
-  if (attMode === 'monthly') {
-    body = monthNav() + `<div class="card">${ys.map(y => {
-      const n = yearN(y, curYm);
-      const m = (y.monthly || {})[curYm] || {};
-      const st = monthStatus(y, curYm);
-      return `<div class="att">
-        <div class="row between"><div><span class="name">${esc(y.name)}</span> <span class="muted">${n ? `第${n}年` : '待申請・只需八堂課'}</span></div>
-          <span class="tag ${st.ok ? 'ok' : 'req'}">${st.ok ? '本月達標' : '缺 ' + st.fail.join('、')}</span></div>
-        <div class="checks">${mRules.map(r => {
-          const key = r.kind === 'gathering' ? 'group' : r.id;
-          const lbl = esc(r.label || r.name);
-          const star = isRequired(r, y, curYm) ? '' : '<span class="muted">(選)</span>';
-          if (r.kind === 'count') return `<label>${lbl}${star}<span class="stepper"><button data-act="step" data-y="${y.id}" data-k="${key}" data-d="-1">−</button><span>${m[key] || 0}</span><button data-act="step" data-y="${y.id}" data-k="${key}" data-d="1">＋</button></span></label>`;
-          return `<label><input type="checkbox" data-act="mcheck" data-y="${y.id}" data-k="${key}" ${m[key] ? 'checked' : ''}>${lbl}${star}</label>`;
-        }).join('')}</div></div>`;
-    }).join('')}</div>`;
+  if (attMode === 'byName') {
+    // 1. 選名字點聚會：月曆
+    if (!findY(selYouth)) selYouth = ys[0].id;
+    const y = findY(selYouth);
+    const n = yearN(y, curYm), st = monthStatus(y, curYm), agg = monthAgg(y, curYm);
+    const [cy, cm] = curYm.split('-').map(Number);
+    const first = new Date(cy, cm - 1, 1).getDay(), days = new Date(cy, cm, 0).getDate();
+    let cells = '日一二三四五六'.split('').map((d, i) => `<div class="dow ${i ? '' : 'sun'}">${d}</div>`).join('');
+    for (let i = 0; i < first; i++) cells += '<div></div>';
+    for (let d = 1; d <= days; d++) {
+      const ds = `${curYm}-${pad(d)}`, sun = (first + d - 1) % 7 === 0;
+      cells += `<div class="day ${sun ? 'sun' : ''} ${ds === todayStr ? 'today' : ''}"><span class="dn">${d}</span>${dayItems(ds).map(it =>
+        `<button class="chip ${dayVal(y, ds, it.key) ? 'on' : ''}" data-act="day" data-y="${y.id}" data-d="${ds}" data-k="${it.key}">${esc(it.label.slice(0, 2))}</button>`).join('')}</div>`;
+    }
+    body = `<select id="selYouth" style="width:100%;margin-bottom:10px">${ys.map(o => `<option value="${o.id}" ${o.id === y.id ? 'selected' : ''}>${esc(o.name)}${yearN(o, curYm) ? `（第${yearN(o, curYm)}年）` : '（待申請）'}</option>`).join('')}</select>`
+      + monthNav() + `<div class="card" style="padding:8px"><div class="cal">${cells}</div></div>
+      <div class="card"><div class="row between"><span class="muted">${n ? `第${n}年` : '待申請・只需八堂課'}</span>
+        <span class="tag ${st.ok ? 'ok' : 'req'}">${st.ok ? '本月達標' : '缺 ' + st.fail.join('、')}</span></div>
+        <div class="muted" style="margin-top:4px">${mRules.map(r => { const k = r.kind === 'gathering' ? 'group' : r.id; return `${r.kind === 'gathering' ? '小排' : esc(r.label || r.name)} ${agg[k] || 0} 次`; }).join('・')}</div></div>`;
+  } else if (attMode === 'byMeet') {
+    // 2. 選聚會點名字
+    const items = dayItems(selDate);
+    if (!items.some(it => it.key === selMeet)) selMeet = (items.find(it => it.sundayOnly) || items.find(it => it.key === 'group') || items[0] || {}).key;
+    const dt = new Date(selDate + 'T00:00');
+    const present = ys.filter(y => dayVal(y, selDate, selMeet)).length;
+    body = `<div class="card">
+        <div class="row between" style="flex-wrap:nowrap">
+          <button class="btn ghost sm" data-act="prevD">‹</button>
+          <input type="date" id="selDate" value="${selDate}" style="flex:1;text-align:center">
+          <button class="btn ghost sm" data-act="nextD">›</button>
+        </div>
+        <div class="muted" style="text-align:center;margin:4px 0 10px">週${'日一二三四五六'[dt.getDay()]}${dt.getDay() ? '（主日只在週日）' : ''}</div>
+        <div class="pick">${items.map(it => `<button data-act="meet" data-k="${it.key}" class="${it.key === selMeet ? 'on' : ''}">${esc(it.label)}</button>`).join('')}</div>
+      </div>
+      <div class="card">
+        <div class="row between" style="margin-bottom:4px"><b>出席 ${present} / ${ys.length}</b>
+          <button class="btn ghost sm" data-act="allMeet">${present === ys.length ? '全部取消' : '全選'}</button></div>
+        ${ys.map(y => `<label class="roll"><input type="checkbox" data-act="rollcall" data-y="${y.id}" ${dayVal(y, selDate, selMeet) ? 'checked' : ''}>
+          <span class="name">${esc(y.name)}</span><span class="muted">${yearN(y, selDate.slice(0, 7)) ? `第${yearN(y, selDate.slice(0, 7))}年` : '待申請'}</span></label>`).join('')}
+      </div>`;
   } else if (attMode === 'yearly') {
     body = monthNav() + `<p class="muted" style="margin-top:-4px">每人年度依申請月起算，顯示 ${ymLabel(curYm)} 所在的年度。</p>
       <div class="card">${yRules.length ? ys.map(y => {
@@ -756,19 +818,28 @@ app.addEventListener('click', e => {
   else if (a === 'addYouth') youthDialog();
   else if (a === 'editYouth') youthDialog(findY(el.dataset.id));
   else if (a === 'attMode') { attMode = el.dataset.v; render(); }
-  else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, a === 'prevM' ? -1 : 1); render(); }
-  else if (a === 'step') {
-    const y = findY(el.dataset.y), k = el.dataset.k;
-    const cur = (((y.monthly || {})[curYm]) || {})[k] || 0;
-    setPath(['youths', y.id, 'monthly', curYm, k], Math.max(0, Math.min(5, cur + +el.dataset.d))); render();
+  else if (a === 'day') { setPath(['youths', el.dataset.y, 'days', el.dataset.d, el.dataset.k], !el.classList.contains('on')); render(); }
+  else if (a === 'meet') { selMeet = el.dataset.k; render(); }
+  else if (a === 'prevD' || a === 'nextD') {
+    const d = new Date(selDate + 'T00:00'); d.setDate(d.getDate() + (a === 'prevD' ? -1 : 1));
+    selDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; selMeet = null; render();
   }
+  else if (a === 'allMeet') {
+    const ys = sortedYouths(), all = ys.every(y => dayVal(y, selDate, selMeet));
+    for (const y of ys) if (dayVal(y, selDate, selMeet) === all) setPath(['youths', y.id, 'days', selDate, selMeet], !all);
+    render();
+  }
+  else if (a === 'prevM' || a === 'nextM') { curYm = shiftYm(curYm, a === 'prevM' ? -1 : 1); render(); }
   else if (a === 'shareImg') shareImg();
   else if (a === 'copyText') copyText();
 });
 app.addEventListener('change', e => {
-  const el = e.target; const a = el.dataset.act; if (!a) return;
+  const el = e.target;
+  if (el.id === 'selYouth') { selYouth = el.value; render(); return; }
+  if (el.id === 'selDate') { if (el.value) { selDate = el.value; selMeet = null; } render(); return; }
+  const a = el.dataset.act; if (!a) return;
   const id = el.dataset.y;
-  if (a === 'mcheck') setPath(['youths', id, 'monthly', curYm, el.dataset.k], el.checked);
+  if (a === 'rollcall') setPath(['youths', id, 'days', selDate, selMeet], el.checked);
   else if (a === 'ocheck') setPath(['youths', id, 'once', el.dataset.k], el.checked);
   else if (a === 'lesson') setPath(['youths', id, 'lessons', el.dataset.i], el.checked);
   else if (a === 'yval') setPath(['youths', id, 'yearly', 'Y' + el.dataset.n, el.dataset.k], Math.max(0, +el.value || 0));
