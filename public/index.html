@@ -521,7 +521,7 @@ function renderYouth() {
           <div>
             <b>${esc(y.name)}</b> ${y.birthday ? `<span class="muted">${age(y.birthday)} 歲</span>` : ''}
             ${n ? `<span class="tag">第${n}年</span>` : '<span class="tag yr">待申請</span>'}
-            <div class="muted">${esc([y.shepherd && '牧養：' + y.shepherd, y.school, y.grade].filter(Boolean).join('・'))}${y.appYear ? `・${y.appYear}年${y.appMonth}月申請` : ''}</div>
+            <div class="muted">${esc([y.school, y.grade, y.appYear && `${y.appYear}年${y.appMonth}月申請`, y.shepherd && '牧養：' + y.shepherd].filter(Boolean).join('・'))}</div>
           </div>
           <button class="btn ghost sm" data-act="editYouth" data-id="${y.id}">編輯</button>
         </div>`; }).join('') : '<div class="empty">尚未新增得少</div>'}
@@ -537,7 +537,6 @@ function youthDialog(y) {
     <form>
       <h3>${isNew ? '新增得少' : '編輯得少'}</h3>
       <label class="f"><span>姓名</span><input name="name" required value="${esc(d.name)}"></label>
-      <label class="f"><span>牧養者姓名</span><input name="shepherd" value="${esc(d.shepherd)}"></label>
       <label class="f"><span>生日 <span id="ageTxt"></span></span><input name="birthday" type="date" value="${esc(d.birthday)}"></label>
       <div class="grid2">
         <label class="f"><span>學校</span><input name="school" value="${esc(d.school)}"></label>
@@ -547,6 +546,7 @@ function youthDialog(y) {
         <label class="f"><span>申請年份</span><select name="appYear">${years.map(v => `<option ${+d.appYear===v?'selected':''}>${v}</option>`).join('')}</select></label>
         <label class="f"><span>申請梯次</span><select name="appMonth"><option value="5" ${+d.appMonth===5?'selected':''}>5月</option><option value="11" ${+d.appMonth===11?'selected':''}>11月</option></select></label>
       </div>
+      <label class="f"><span>牧養者姓名</span><input name="shepherd" value="${esc(d.shepherd)}"></label>
       <p class="muted" style="margin-top:0">申請時間還沒到的得少為「待申請」，只需完成八堂課。</p>
       <div class="row between">
         <div>${isNew ? '' : '<button type="button" class="btn danger sm" id="delY">刪除</button>'}</div>
