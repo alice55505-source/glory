@@ -503,10 +503,14 @@ function renderRules() {
     </div>`;
 }
 
-const actRow = a => `<div class="row act" data-aid="${esc(a.id || '')}" style="flex-wrap:nowrap;margin:6px 0">
-  <input class="an" placeholder="活動名稱" value="${esc(a.name || '')}" style="flex:1;min-width:0">
-  <input class="ah hours" type="number" min="0" step="0.5" inputmode="decimal" placeholder="時數" value="${a.hours ?? ''}">
-  <button type="button" class="btn danger sm" data-del>✕</button></div>`;
+const actRow = a => `<div class="act" data-aid="${esc(a.id || '')}" style="border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0">
+  <div class="row" style="flex-wrap:nowrap"><input class="an" placeholder="活動名稱" value="${esc(a.name || '')}" style="flex:1;min-width:0">
+  <button type="button" class="btn danger sm" data-del>✕</button></div>
+  <div class="row" style="flex-wrap:nowrap;margin-top:6px"><input class="ad" type="date" value="${esc(a.date || '')}" style="flex:1;min-width:0">
+  <input class="ah hours" type="number" min="0" step="0.5" inputmode="decimal" placeholder="時數" value="${a.hours ?? ''}"><span class="muted">小時</span></div></div>`;
+// 活動依日期排序（沒填日期的排最後）
+const byDate = (a, b) => (a.date || '9999').localeCompare(b.date || '9999');
+const mdLabel = d => d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '';
 function ruleDialog(rule) {
   const isNew = !rule;
   const r = rule ? clone(rule) : { id: uid(), builtin: false, enabled: true, name: '', period: 'monthly', kind: 'check', req: 'required', target: 1, fromYear: 3 };
@@ -533,7 +537,7 @@ function ruleDialog(rule) {
       <label class="f" id="tgWrap"><span id="tgLbl">目標</span><input name="target" type="number" min="0" step="0.5" value="${r.target ?? 1}"></label>
       ${r.kind === 'gathering' ? `<label class="f"><span>第幾年起必須是主日（之前小排或主日皆可）</span><input name="sundayFromYear" type="number" min="1" max="10" value="${r.sundayFromYear || 3}"></label>` : ''}
       <div class="f" id="actWrap"><span class="muted" style="font-size:13px">活動（點名時直接按，年度時數＝參加活動的時數加總）</span>
-        <div id="acts">${(r.activities || []).map(actRow).join('')}</div>
+        <div id="acts">${[...(r.activities || [])].sort(byDate).map(actRow).join('')}</div>
         <button type="button" class="btn ghost sm" id="addAct">＋ 新增活動</button></div>
       ${r.kind === 'lessons' ? `<label class="f"><span>八堂課名稱（一行一堂）</span><textarea name="lessons" rows="8" style="width:100%">${esc(r.lessons.join('\n'))}</textarea></label>` : ''}
       <label class="row" style="margin-bottom:12px"><input type="checkbox" name="enabled" ${r.enabled?'checked':''}> 啟用此規定</label>
@@ -572,8 +576,8 @@ function ruleDialog(rule) {
     r.target = +f.target.value || 0; r.enabled = f.enabled.checked;
     if (f.sundayFromYear) r.sundayFromYear = +f.sundayFromYear.value || 3;
     if (r.kind === 'hours') r.activities = [...dlg.querySelectorAll('#acts .act')]
-      .map(row => ({ id: row.dataset.aid || uid(), name: row.querySelector('.an').value.trim(), hours: +row.querySelector('.ah').value || 0 }))
-      .filter(a => a.name);
+      .map(row => ({ id: row.dataset.aid || uid(), name: row.querySelector('.an').value.trim(), date: row.querySelector('.ad').value, hours: +row.querySelector('.ah').value || 0 }))
+      .filter(a => a.name).sort(byDate);
     if (r.kind === 'lessons') { const ls = f.lessons.value.split('\n').map(s => s.trim()).filter(Boolean); if (ls.length) r.lessons = ls; }
     const rules = clone(DB.rules);
     const i = rules.findIndex(x => x.id === r.id);
@@ -657,12 +661,16 @@ function youthDialog(y) {
 // 年度活動（選聚會頁可直接點名）
 function actItems() {
   return activeRules().filter(r => r.period === 'yearly' && r.kind === 'hours')
-    .flatMap(r => (r.activities || []).map(a => ({ key: `act|${r.id}|${a.id}`, label: a.name, sub: `${colName(r)} ${a.hours}h` })));
+    .flatMap(r => (r.activities || []).map(a => ({ key: `act|${r.id}|${a.id}`, date: a.date, label: a.name, sub: `${mdLabel(a.date) ? mdLabel(a.date) + ' ' : ''}${colName(r)} ${a.hours}h` })))
+    .sort(byDate);
 }
 // 選聚會頁目前選的聚會／活動，對應到這位得少的紀錄位置
 function meetRef(y) {
   if (String(selMeet).startsWith('act|')) {
-    const [, rid, aid] = selMeet.split('|'), n = yearN(y, selDate.slice(0, 7));
+    // 有日期的活動記入活動當時所在年度；沒日期的依點名頁所選日期
+    const [, rid, aid] = selMeet.split('|');
+    const act = ((DB.rules.find(r => r.id === rid) || {}).activities || []).find(a => a.id === aid) || {};
+    const n = yearN(y, (act.date || selDate).slice(0, 7));
     if (!n) return { val: false };
     return { path: ['youths', y.id, 'yearly', 'Y' + n, rid + '__a', aid], val: actOn(y, n, rid, aid) };
   }
@@ -677,10 +685,11 @@ function yearCard(y, n, yRules) {
     ${yRules.map(r => {
       const unit = r.kind === 'hours' ? ' 小時' : ' 次';
       const tot = yearTotal(y, n, r), met = tot >= r.target;
-      const acts = r.kind === 'hours' ? (r.activities || []) : [];
+      // 只列這個年度期間內的活動（沒填日期、或已點過的也列出）
+      const acts = r.kind === 'hours' ? (r.activities || []).filter(a => !a.date || yearN(y, a.date.slice(0, 7)) === n || actOn(y, n, r.id, a.id)).sort(byDate) : [];
       return `<div class="att">
         <div class="row between"><b>${esc(r.label || r.name)}</b><span class="${met ? 'y' : 'muted'}">${tot} / ${r.target}${unit}${met ? ' ✓' : ''}</span></div>
-        ${acts.length ? `<div class="names small" style="margin-top:8px">${acts.map(a => `<button class="nm ${actOn(y, n, r.id, a.id) ? 'on' : ''}" data-act="actBtn" data-y="${y.id}" data-n="${n}" data-r="${r.id}" data-a="${a.id}">${esc(a.name)}<br><small>${a.hours}h</small></button>`).join('')}</div>` : ''}
+        ${acts.length ? `<div class="names small" style="margin-top:8px">${acts.map(a => `<button class="nm ${actOn(y, n, r.id, a.id) ? 'on' : ''}" data-act="actBtn" data-y="${y.id}" data-n="${n}" data-r="${r.id}" data-a="${a.id}">${esc(a.name)}<br><small>${mdLabel(a.date) ? mdLabel(a.date) + '・' : ''}${a.hours}h</small></button>`).join('')}</div>` : ''}
         ${r.kind === 'hours' ? (acts.length ? '' : '<div class="muted" style="margin-top:6px">尚無活動，請到「① 各地規定」編輯此規定新增活動</div>')
           : `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:8px">填寫次數
           <input class="hours" type="number" min="0" step="1" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0"></label>`}
@@ -748,7 +757,7 @@ function renderAtt() {
         </div>
         <div class="muted" style="text-align:center;margin:4px 0 10px">週${'日一二三四五六'[dt.getDay()]}${dt.getDay() ? '（主日只在週日）' : ''}</div>
         <div class="pick">${items.map(it => `<button data-act="meet" data-k="${it.key}" class="${it.key === selMeet ? 'on' : ''}">${esc(it.label)}</button>`).join('')}</div>
-        ${acts.length ? `<div class="muted" style="margin:10px 0 4px">活動（記入各人當時所在年度）</div>
+        ${acts.length ? `<div class="muted" style="margin:10px 0 4px">活動（依日期排序，記入各人活動當時所在年度）</div>
         <div class="pick">${acts.map(it => `<button data-act="meet" data-k="${it.key}" class="${it.key === selMeet ? 'on' : ''}">${esc(it.label)} <small>${esc(it.sub)}</small></button>`).join('')}</div>` : ''}
       </div>
       <div class="card">
