@@ -598,6 +598,28 @@ function youthDialog(y) {
 }
 
 /* ---------- 第三層：點名 ---------- */
+// 選名字頁下方：這位得少的年度時數
+function yearCard(y, n, yRules) {
+  if (!yRules.length) return '';
+  if (!n) return '<div class="card"><h3>年度</h3><div class="muted">待申請，尚無年度</div></div>';
+  const rec = (y.yearly || {})['Y' + n] || {};
+  return `<div class="card"><h3>第${n}年 <span class="muted">（${serviceRange(y, n)}）</span></h3>
+    <div class="checks">${yRules.map(r => {
+      const met = (rec[r.id] || 0) >= r.target;
+      return `<label>${esc(r.label || r.name)}
+        <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0">
+        <span class="${met ? 'y' : 'muted'}">/ ${r.target}${r.kind==='hours'?' 小時':' 次'}${met ? ' ✓' : ''}</span></label>`; }).join('')}</div></div>`;
+}
+// 選名字頁下方：這位得少的八堂課
+function lessonCard(y, lessonRule, onceRules) {
+  if (!lessonRule && !onceRules.length) return '';
+  const done = lessonRule ? lessonDone(y, lessonRule) : 0;
+  return `<div class="card">
+    ${lessonRule ? `<div class="row between"><h3 style="margin:0">${esc(lessonRule.name)}</h3><span class="tag ${done >= lessonRule.lessons.length ? 'ok' : ''}">${done}/${lessonRule.lessons.length}</span></div>
+    <div class="lessons">${lessonRule.lessons.map((l, i) => `<label><input type="checkbox" data-act="lesson" data-y="${y.id}" data-i="${i}" ${(y.lessons || {})[i] ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>` : ''}
+    ${onceRules.length ? `<div class="checks" style="margin-top:10px">${onceRules.map(r => `<label><input type="checkbox" data-act="ocheck" data-y="${y.id}" data-k="${r.id}" ${(y.once || {})[r.id] ? 'checked' : ''}>${esc(r.label || r.name)}</label>`).join('')}</div>` : ''}
+  </div>`;
+}
 function monthNav() {
   return `<div class="row between" style="margin-bottom:12px">
     <button class="btn ghost sm" data-act="prevM">‹</button><b>${ymLabel(curYm)}</b>
@@ -611,7 +633,7 @@ function renderAtt() {
   const mRules = rules.filter(r => r.period === 'monthly');
   const yRules = rules.filter(r => r.period === 'yearly');
   const seg = `<div class="seg" style="margin-bottom:12px">
-      ${[['byName','選名字'],['byMeet','選聚會'],['yearly','每年'],['once','八堂課']].map(([v,t]) => `<button data-act="attMode" data-v="${v}" class="${attMode===v?'on':''}">${t}</button>`).join('')}</div>`;
+      ${[['byName','選名字'],['byMeet','選聚會']].map(([v,t]) => `<button data-act="attMode" data-v="${v}" class="${attMode===v?'on':''}">${t}</button>`).join('')}</div>`;
   if (!ys.length) { app.innerHTML = seg + '<div class="card empty">請先到「② 得少資料」新增得少</div>'; return; }
 
   let body = '';
@@ -633,7 +655,8 @@ function renderAtt() {
       + monthNav() + `<div class="card" style="padding:8px"><div class="cal">${cells}</div></div>
       <div class="card"><div class="row between"><span class="muted">${n ? `第${n}年` : '待申請・只需八堂課'}</span>
         <span class="tag ${st.ok ? 'ok' : 'req'}">${st.ok ? '本月達標' : '缺 ' + st.fail.join('、')}</span></div>
-        <div class="muted" style="margin-top:4px">${mRules.map(r => { const k = r.kind === 'gathering' ? 'group' : r.id; return `${r.kind === 'gathering' ? '小排' : esc(r.label || r.name)} ${agg[k] || 0} 次`; }).join('・')}</div></div>`;
+        <div class="muted" style="margin-top:4px">${mRules.map(r => { const k = r.kind === 'gathering' ? 'group' : r.id; return `${r.kind === 'gathering' ? '小排' : esc(r.label || r.name)} ${agg[k] || 0} 次`; }).join('・')}</div></div>`
+      + yearCard(y, n, yRules) + lessonCard(y, lessonRule, onceRules);
   } else if (attMode === 'byMeet') {
     // 2. 選聚會點名字
     const items = dayItems(selDate);
@@ -655,27 +678,6 @@ function renderAtt() {
         ${ys.map(y => `<label class="roll"><input type="checkbox" data-act="rollcall" data-y="${y.id}" ${dayVal(y, selDate, selMeet) ? 'checked' : ''}>
           <span class="name">${esc(y.name)}</span><span class="muted">${yearN(y, selDate.slice(0, 7)) ? `第${yearN(y, selDate.slice(0, 7))}年` : '待申請'}</span></label>`).join('')}
       </div>`;
-  } else if (attMode === 'yearly') {
-    body = monthNav() + `<p class="muted" style="margin-top:-4px">每人年度依申請月起算，顯示 ${ymLabel(curYm)} 所在的年度。</p>
-      <div class="card">${yRules.length ? ys.map(y => {
-      const n = yearN(y, curYm);
-      if (!n) return `<div class="att"><span class="name">${esc(y.name)}</span> <span class="muted">待申請，尚無年度</span></div>`;
-      const rec = (y.yearly || {})['Y' + n] || {};
-      return `<div class="att"><span class="name">${esc(y.name)}</span> <span class="muted">第${n}年（${serviceRange(y, n)}）</span>
-        <div class="checks">${yRules.map(r => `<label>${esc(r.label || r.name)}
-          <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0">
-          <span class="muted">/ ${r.target}${r.kind==='hours'?' 小時':' 次'}</span></label>`).join('')}</div></div>`;
-    }).join('') : '<div class="empty">沒有每年規定</div>'}</div>`;
-  } else {
-    body = `<div class="card">${ys.map(y => {
-      const done = lessonRule ? lessonDone(y, lessonRule) : 0;
-      return `<div class="att">
-        <div class="row between"><div><span class="name">${esc(y.name)}</span> ${yearN(y, thisMonth) ? '' : '<span class="tag yr">待申請</span>'}</div>
-        ${lessonRule ? `<span class="tag ${done >= lessonRule.lessons.length ? 'ok' : ''}">${done}/${lessonRule.lessons.length}</span>` : ''}</div>
-        ${lessonRule ? `<div class="lessons">${lessonRule.lessons.map((l, i) => `<label><input type="checkbox" data-act="lesson" data-y="${y.id}" data-i="${i}" ${(y.lessons || {})[i] ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>` : ''}
-        ${onceRules.length ? `<div class="checks">${onceRules.map(r => `<label><input type="checkbox" data-act="ocheck" data-y="${y.id}" data-k="${r.id}" ${(y.once || {})[r.id] ? 'checked' : ''}>${esc(r.label || r.name)}</label>`).join('')}</div>` : ''}
-      </div>`;
-    }).join('')}</div>`;
   }
   app.innerHTML = seg + body;
 }
