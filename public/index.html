@@ -165,7 +165,7 @@ function defaultRules() {
     { id: 'lessons', builtin: true, enabled: true, name: '申請八堂課', period: 'once', kind: 'lessons', req: 'required', label: '八堂課',
       lessons: ['第一堂','第二堂','第三堂','第四堂','第五堂','第六堂','第七堂','第八堂'] },
     { id: 'home', builtin: true, enabled: true, name: '每月家訪', period: 'monthly', kind: 'check', req: 'required', label: '家訪' },
-    { id: 'group', builtin: true, enabled: true, name: '每月聚集（小排或主日）', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排', sundayFromYear: 3 },
+    { id: 'group', builtin: true, enabled: true, name: '每月聚集（小排或主日）', period: 'monthly', kind: 'gathering', req: 'optional', label: '小排' },
     { id: 'sunday', builtin: true, enabled: true, name: '每月主日', period: 'monthly', kind: 'count', req: 'fromYear', fromYear: 3, target: 1, label: '主日' },
     { id: 'growth', builtin: true, enabled: true, name: '每年生命成長園', period: 'yearly', kind: 'hours', req: 'required', target: 8, label: '成長園' },
     { id: 'service', builtin: true, enabled: true, name: '每年社區服務', period: 'yearly', kind: 'hours', req: 'required', target: 4, label: '社區服務' },
@@ -353,9 +353,10 @@ function evalRule(rule, y, ym) {
   switch (rule.kind) {
     case 'check': { const v = rule.period === 'once' ? !!(y.once || {})[rule.id] : !!m[rule.id]; return { met: v, text: v ? '✓' : '✗' }; }
     case 'gathering': {
-      // 前兩年小排或主日皆可；第 N 年起必須是主日
-      const sundayOnly = n >= (rule.sundayFromYear || 3);
-      const v = sundayOnly ? (m.sunday || 0) > 0 : !!m.group || (m.sunday || 0) > 0;
+      // 小排或主日皆可；主日成為規定後（第 3 年起），規定的主日不重複計入，須另外再有一次聚集
+      const sunRule = activeRules().find(r => r.id === 'sunday');
+      const reserved = sunRule && isRequired(sunRule, y, ym) ? (sunRule.target || 1) : 0;
+      const v = !!m.group || (m.sunday || 0) > reserved;
       return { met: v, text: v ? '✓' : '✗' };
     }
     case 'count': if (rule.period === 'yearly') { const c = yv || 0; return { met: c >= rule.target, text: `${c}/${rule.target}` }; }
@@ -514,7 +515,7 @@ function renderRules() {
               ${r.kind === 'hours' ? `<span class="muted">${r.target} 小時（依申請月起算年度）${(r.activities || []).length ? `・活動 ${r.activities.length} 個` : ''}</span>` : ''}
               ${r.kind === 'count' ? `<span class="muted">至少 ${r.target} 次</span>` : ''}
               ${r.kind === 'lessons' ? `<span class="muted">${r.lessons.length} 堂・待申請者只需完成此項</span>` : ''}
-              ${r.kind === 'gathering' ? `<span class="muted">第${r.sundayFromYear || 3}年起須為主日</span>` : ''}
+              ${r.kind === 'gathering' ? '<span class="muted">主日規定後須另加一次</span>' : ''}
             </div>
           </div>
           <button class="btn ghost sm" data-act="editRule" data-id="${r.id}">編輯</button>
@@ -554,7 +555,7 @@ function ruleDialog(rule) {
         <label class="f" id="fyWrap"><span>從第幾年起</span><input name="fromYear" type="number" min="1" max="10" value="${r.fromYear || 3}"></label>
       </div>
       <label class="f" id="tgWrap"><span id="tgLbl">目標</span><input name="target" type="number" min="0" step="0.5" value="${r.target ?? 1}"></label>
-      ${r.kind === 'gathering' ? `<label class="f"><span>第幾年起必須是主日（之前小排或主日皆可）</span><input name="sundayFromYear" type="number" min="1" max="10" value="${r.sundayFromYear || 3}"></label>` : ''}
+      ${r.kind === 'gathering' ? `<p class="muted" style="margin-top:0">小排或主日皆可。「每月主日」成為規定後，規定的主日不重複計算，須另外再有一次小排或主日。</p>` : ''}
       <div class="f" id="actWrap"><span class="muted" style="font-size:13px">活動（點名時直接按，年度時數＝參加活動的時數加總）</span>
         <div id="acts">${[...(r.activities || [])].sort(byDate).map(actRow).join('')}</div>
         <button type="button" class="btn ghost sm" id="addAct">＋ 新增活動</button></div>
@@ -593,7 +594,6 @@ function ruleDialog(rule) {
     if (!r.builtin) { r.period = f.period.value; r.kind = f.kind.value; }
     r.req = f.req.value; r.fromYear = +f.fromYear.value || 1;
     r.target = +f.target.value || 0; r.enabled = f.enabled.checked;
-    if (f.sundayFromYear) r.sundayFromYear = +f.sundayFromYear.value || 3;
     if (r.kind === 'hours') r.activities = [...dlg.querySelectorAll('#acts .act')]
       .map(row => ({ id: row.dataset.aid || uid(), name: row.querySelector('.an').value.trim(), date: row.querySelector('.ad').value, hours: +row.querySelector('.ah').value || 0 }))
       .filter(a => a.name).sort(byDate);
@@ -833,7 +833,7 @@ function ruleLines() {
   const tag = r => r.req === 'required' ? '規定' : r.req === 'fromYear' ? `第${r.fromYear}年起規定` : '選填';
   const desc = r => {
     if (r.kind === 'lessons') return `完成 ${r.lessons.length} 堂（待申請者只需此項）`;
-    if (r.kind === 'gathering') return `小排或主日皆可，第${r.sundayFromYear || 3}年起須為主日`;
+    if (r.kind === 'gathering') return '小排或主日皆可；主日規定後，須在規定主日之外再有一次';
     if (r.period === 'monthly') return r.kind === 'count' ? `每月至少 ${r.target} 次` : '每月至少 1 次';
     if (r.period === 'yearly') return `每年度 ${r.target}${r.kind === 'hours' ? ' 小時' : ' 次'}（依申請月起算）`;
     return '完成';
