@@ -314,10 +314,11 @@ function monthAgg(y, ym) {
   for (const k of Object.keys(out)) if (k[0] === '_') { const kk = k.slice(1); out[kk] = Math.max(out[kk] || 0, out[k]); delete out[k]; }
   return out;
 }
-// 年度累計：勾選的活動時數 + 手動填的其他時數
+// 年度累計：時數規定＝勾選的活動時數加總；次數規定＝手動填寫
 function yearTotal(y, n, rule) {
   const rec = ((y.yearly || {})['Y' + n]) || {}, acts = rec[rule.id + '__a'] || {};
-  return (Number(rec[rule.id]) || 0) + (rule.activities || []).filter(a => acts[a.id]).reduce((t, a) => t + (Number(a.hours) || 0), 0);
+  if (rule.kind !== 'hours') return Number(rec[rule.id]) || 0;
+  return (rule.activities || []).filter(a => acts[a.id]).reduce((t, a) => t + (Number(a.hours) || 0), 0);
 }
 const actOn = (y, n, rid, aid) => !!(((((y.yearly || {})['Y' + n]) || {})[rid + '__a']) || {})[aid];
 const dayVal = (y, d, k) => !!(((y.days || {})[d]) || {})[k];
@@ -513,7 +514,7 @@ function ruleDialog(rule) {
       </div>
       <label class="f" id="tgWrap"><span id="tgLbl">目標</span><input name="target" type="number" min="0" step="0.5" value="${r.target ?? 1}"></label>
       ${r.kind === 'gathering' ? `<label class="f"><span>第幾年起必須是主日（之前小排或主日皆可）</span><input name="sundayFromYear" type="number" min="1" max="10" value="${r.sundayFromYear || 3}"></label>` : ''}
-      <div class="f" id="actWrap"><span class="muted" style="font-size:13px">活動（點名時直接按，自動加總時數）</span>
+      <div class="f" id="actWrap"><span class="muted" style="font-size:13px">活動（點名時直接按，年度時數＝參加活動的時數加總）</span>
         <div id="acts">${(r.activities || []).map(actRow).join('')}</div>
         <button type="button" class="btn ghost sm" id="addAct">＋ 新增活動</button></div>
       ${r.kind === 'lessons' ? `<label class="f"><span>八堂課名稱（一行一堂）</span><textarea name="lessons" rows="8" style="width:100%">${esc(r.lessons.join('\n'))}</textarea></label>` : ''}
@@ -647,13 +648,14 @@ function yearCard(y, n, yRules) {
   return `<div class="card"><h3>第${n}年 <span class="muted">（${serviceRange(y, n)}）</span></h3>
     ${yRules.map(r => {
       const unit = r.kind === 'hours' ? ' 小時' : ' 次';
-      const tot = r.kind === 'hours' ? yearTotal(y, n, r) : (Number(rec[r.id]) || 0), met = tot >= r.target;
+      const tot = yearTotal(y, n, r), met = tot >= r.target;
       const acts = r.kind === 'hours' ? (r.activities || []) : [];
       return `<div class="att">
         <div class="row between"><b>${esc(r.label || r.name)}</b><span class="${met ? 'y' : 'muted'}">${tot} / ${r.target}${unit}${met ? ' ✓' : ''}</span></div>
         ${acts.length ? `<div class="names small" style="margin-top:8px">${acts.map(a => `<button class="nm ${actOn(y, n, r.id, a.id) ? 'on' : ''}" data-act="actBtn" data-y="${y.id}" data-n="${n}" data-r="${r.id}" data-a="${a.id}">${esc(a.name)}<br><small>${a.hours}h</small></button>`).join('')}</div>` : ''}
-        <label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:8px">${acts.length ? '其他' : '填寫'}${unit.trim()}
-          <input class="hours" type="number" min="0" step="${r.kind==='hours'?0.5:1}" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0"></label>
+        ${r.kind === 'hours' ? (acts.length ? '' : '<div class="muted" style="margin-top:6px">尚無活動，請到「① 各地規定」編輯此規定新增活動</div>')
+          : `<label class="muted" style="display:flex;align-items:center;gap:6px;margin-top:8px">填寫次數
+          <input class="hours" type="number" min="0" step="1" inputmode="decimal" data-act="yval" data-y="${y.id}" data-n="${n}" data-k="${r.id}" value="${rec[r.id] || ''}" placeholder="0"></label>`}
       </div>`; }).join('')}</div>`;
 }
 // 選名字頁下方：這位得少的八堂課
