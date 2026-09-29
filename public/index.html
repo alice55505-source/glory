@@ -91,6 +91,8 @@
   .pick button:disabled { opacity: .35; }
   .names { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
   .nm { font: inherit; font-size: 17px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 10px; padding: 14px 4px; cursor: pointer; }
+  .names.small { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .names.small .nm { font-size: 14px; padding: 10px 2px; }
   .nm.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
   @media (prefers-color-scheme: dark) { .nm.on { color: #0e1a2b; } }
   .roll { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-top: 1px solid var(--line); cursor: pointer; }
@@ -619,8 +621,9 @@ function lessonCard(y, lessonRule, onceRules) {
   if (!lessonRule && !onceRules.length) return '';
   const done = lessonRule ? lessonDone(y, lessonRule) : 0;
   return `<div class="card">
-    ${lessonRule ? `<div class="row between"><h3 style="margin:0">${esc(lessonRule.name)}</h3><span class="tag ${done >= lessonRule.lessons.length ? 'ok' : ''}">${done}/${lessonRule.lessons.length}</span></div>
-    <div class="lessons">${lessonRule.lessons.map((l, i) => `<label><input type="checkbox" data-act="lesson" data-y="${y.id}" data-i="${i}" ${(y.lessons || {})[i] ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>` : ''}
+    ${lessonRule ? `<div class="row between" style="margin-bottom:10px"><h3 style="margin:0">${esc(lessonRule.name)} <span class="tag ${done >= lessonRule.lessons.length ? 'ok' : ''}">${done}/${lessonRule.lessons.length}</span></h3>
+      <button class="btn ghost sm" data-act="allLessons" data-y="${y.id}">${done >= lessonRule.lessons.length ? '全部取消' : '全選'}</button></div>
+    <div class="names small">${lessonRule.lessons.map((l, i) => `<button class="nm ${(y.lessons || {})[i] ? 'on' : ''}" data-act="lessonBtn" data-y="${y.id}" data-i="${i}">${esc(l)}</button>`).join('')}</div>` : ''}
     ${onceRules.length ? `<div class="checks" style="margin-top:10px">${onceRules.map(r => `<label><input type="checkbox" data-act="ocheck" data-y="${y.id}" data-k="${r.id}" ${(y.once || {})[r.id] ? 'checked' : ''}>${esc(r.label || r.name)}</label>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -825,6 +828,13 @@ app.addEventListener('click', e => {
   else if (a === 'editYouth') youthDialog(findY(el.dataset.id));
   else if (a === 'attMode') { attMode = el.dataset.v; render(); }
   else if (a === 'day') { setPath(['youths', el.dataset.y, 'days', el.dataset.d, el.dataset.k], !el.classList.contains('on')); render(); }
+  else if (a === 'lessonBtn') { setPath(['youths', el.dataset.y, 'lessons', el.dataset.i], !el.classList.contains('on')); render(); }
+  else if (a === 'allLessons') {
+    const y = findY(el.dataset.y), rule = activeRules().find(r => r.kind === 'lessons');
+    const all = lessonDone(y, rule) >= rule.lessons.length;
+    rule.lessons.forEach((_, i) => { if (!!(y.lessons || {})[i] === all) setPath(['youths', y.id, 'lessons', String(i)], !all); });
+    render();
+  }
   else if (a === 'rollcall') { setPath(['youths', el.dataset.y, 'days', selDate, selMeet], !el.classList.contains('on')); render(); }
   else if (a === 'meet') { selMeet = el.dataset.k; render(); }
   else if (a === 'prevD' || a === 'nextD') {
